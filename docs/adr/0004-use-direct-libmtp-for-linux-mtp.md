@@ -1,0 +1,3 @@
+# Use direct libmtp for experimental Linux MTP
+
+The Linux AppImage will implement experimental MTP through one direct `libmtp` adapter, dynamically bundling pinned `libmtp`, `libusb`, and required non-system transitive libraries while excluding GVfs and KIO. This preserves MTP object identity and capability semantics behind the Rust transport boundary and avoids maintaining competing desktop-broker adapters; in return, standard host USB permissions, explicit release of any desktop-owned MTP session, LGPL distribution compliance, cooperative cancellation recovery, and packaged physical validation on Ubuntu and Fedora GNOME with the AYN Odin 3 are shipment requirements.
