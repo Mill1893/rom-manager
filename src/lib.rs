@@ -9,6 +9,7 @@ mod confined;
 mod domain;
 mod durable;
 mod esde;
+mod gamelist;
 mod library;
 mod projection;
 mod store;
@@ -28,6 +29,7 @@ pub use domain::{
 };
 pub use durable::{DurableError, approve, execute_approved};
 pub use esde::{DestinationRole, EsdeProfile, RoleAssignment};
+pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OWNED_FIELDS};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
