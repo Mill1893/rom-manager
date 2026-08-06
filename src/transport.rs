@@ -145,6 +145,13 @@ impl FakeTransport {
         }
     }
 
+    /// Presents a binding whose observed capabilities differ from the default,
+    /// so per-action gating can be exercised without a real device.
+    pub fn with_capabilities(mut self, capabilities: TransportCapabilities) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
+
     pub fn with_artifact(mut self, path: RelativePath, bytes: Vec<u8>) -> Self {
         self.artifacts.insert(path, bytes);
         self.generation += 1;

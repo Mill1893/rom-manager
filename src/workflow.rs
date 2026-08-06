@@ -237,18 +237,35 @@ impl<T: Transport> SyncCore<T> {
                 available: inventory.free_bytes,
             });
         }
+        // Capability requirements are per action, and are evaluated only when
+        // the plan actually contains that action: a plan with no removals is not
+        // blocked by a binding that cannot delete.
         let capabilities = self.transport.capabilities();
-        if !capabilities.read_back {
+        let contains = |wanted: Action| actions.iter().any(|action| action.action == wanted);
+        let places = contains(Action::Add);
+        let verifies = places || contains(Action::Adopt);
+
+        // An addition must be verifiable before it can ever justify a permanent
+        // removal, and an adoption without read-back would fabricate authority.
+        if verifies && !capabilities.read_back {
             blocked.push(BlockReason::UnsupportedCapability {
                 capability: "read-back verification".into(),
             });
         }
-        if actions.iter().any(|action| action.action == Action::Remove) && !capabilities.leaf_delete
-        {
+        // Capacity safety is a pre-flight guarantee; a binding that cannot
+        // report free space cannot support it, and guessing is not permitted.
+        if places && !capabilities.reports_capacity {
+            blocked.push(BlockReason::UnsupportedCapability {
+                capability: "capacity reporting".into(),
+            });
+        }
+        if contains(Action::Remove) && !capabilities.leaf_delete {
             blocked.push(BlockReason::UnsupportedCapability {
                 capability: "leaf deletion".into(),
             });
         }
+        // `atomic_publish` never blocks. It is disclosed on the plan below, and
+        // publication falls back to a documented non-atomic path.
 
         Ok(SyncPlan {
             schema_version: 1,
