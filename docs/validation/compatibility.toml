@@ -13,6 +13,60 @@ status = "implemented"
 evidence = "tests/sync_core.rs"
 
 [[cell]]
+name = "portable target-path namespace and effective-equivalence key"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/target_path_namespace.rs"
+
+[[cell]]
+name = "frozen Generic profile snapshot identity"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "fixtures/profiles/generic-folder.rev1.sha256, tests/target_path_namespace.rs"
+
+[[cell]]
+name = "per-action transport capability gating"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/action_capabilities.rs"
+
+[[cell]]
+name = "single-use Sync Plan approval bound to observed evidence"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/plan_approval.rs"
+
+[[cell]]
+name = "occupied-path classification and collision blocking"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/occupied_paths.rs"
+
+[[cell]]
+name = "failure outcomes and unverifiable-residue preservation"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/failure_residue.rs"
+
+[[cell]]
+name = "filesystem confinement, Unix openat/O_NOFOLLOW"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/confinement.rs, exercised against real symlinks"
+
+[[cell]]
+name = "filesystem confinement, Windows NtCreateFile/OBJ_DONT_REPARSE"
+requirement = "windows-sync-core"
+status = "unverified"
+evidence = "src/confined.rs compiles for x86_64-pc-windows-gnu; no runtime evidence on any Windows host"
+
+[[cell]]
+name = "reparse confinement for tags other than junctions"
+requirement = "windows-sync-core"
+status = "unverified"
+evidence = "probe #52 lacked the privilege to create symbolic links; tag-agnostic behaviour is inferred from documentation, not observed"
+
+[[cell]]
 name = "packaged Windows filesystem sync"
 requirement = "windows-sync-core"
 status = "blocked"
