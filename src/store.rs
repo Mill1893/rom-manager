@@ -537,6 +537,72 @@ impl Store {
             .optional()?)
     }
 
+    /// ROM Sets whose content is these bytes.
+    pub fn rom_sets_using(&self, content_digest: &str) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT rom_set_id FROM rom_set WHERE content_digest = ?1 ORDER BY rom_set_id",
+        )?;
+        let rows = statement.query_map(params![content_digest], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// ROM Packs that select content with this identity.
+    pub fn rom_packs_selecting_content(
+        &self,
+        content_digest: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT rom_pack_id FROM rom_pack_selection
+              WHERE content_digest = ?1 ORDER BY rom_pack_id",
+        )?;
+        let rows = statement.query_map(params![content_digest], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Drops an owned object's record. Library identities that referenced it
+    /// are deliberately left alone — they become unavailable, not deleted.
+    pub fn forget_source_object(&self, content_digest: &str) -> Result<(), StoreError> {
+        self.connection.execute(
+            "DELETE FROM origin_observation WHERE content_digest = ?1",
+            params![content_digest],
+        )?;
+        self.connection.execute(
+            "DELETE FROM source_object WHERE content_digest = ?1",
+            params![content_digest],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes a ROM Set identity, refusing while a ROM Pack still selects it.
+    ///
+    /// No action here silently cascades: a selection is a promise the user made
+    /// and only the user can withdraw it.
+    pub fn delete_rom_set(&self, rom_set_id: &str) -> Result<(), StoreError> {
+        let selected: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM rom_pack_selection WHERE rom_set_id = ?1",
+            params![rom_set_id],
+            |row| row.get(0),
+        )?;
+        if selected > 0 {
+            return Err(StoreError::Corrupt(format!(
+                "{rom_set_id} is selected by {selected} ROM Pack revision(s)"
+            )));
+        }
+        self.connection.execute(
+            "DELETE FROM rom_set WHERE rom_set_id = ?1",
+            params![rom_set_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn rom_set_exists(&self, rom_set_id: &str) -> Result<bool, StoreError> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM rom_set WHERE rom_set_id = ?1",
+            params![rom_set_id],
+            |row| row.get::<_, i64>(0),
+        )? > 0)
+    }
+
     pub fn owned_object_count(&self) -> Result<usize, StoreError> {
         Ok(self
             .connection

@@ -655,3 +655,91 @@ impl Library {
         })
     }
 }
+
+/// What removing some managed bytes would cost.
+///
+/// Produced before anything is deleted, so the user decides with the
+/// consequences in front of them rather than discovering them afterwards.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RemovalImpact {
+    /// ROM Sets that would stop being reproducible.
+    pub rom_sets_becoming_unavailable: Vec<String>,
+    /// ROM Packs that would stop being syncable as a result.
+    pub rom_packs_becoming_unsyncable: Vec<String>,
+    /// True when the object is reproducible from somewhere else, so removing
+    /// this copy costs nothing.
+    pub still_reproducible_elsewhere: bool,
+}
+
+impl RemovalImpact {
+    /// Whether the user must confirm before this can proceed.
+    pub fn requires_confirmation(&self) -> bool {
+        !self.rom_sets_becoming_unavailable.is_empty()
+            || !self.rom_packs_becoming_unsyncable.is_empty()
+    }
+}
+
+/// Why a semantic deletion cannot proceed.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum DeletionBlocked {
+    #[error("{0} ROM Pack(s) still select this content")]
+    SelectedByRomPack(usize),
+    #[error("removal was not confirmed, and it would make content unavailable")]
+    NotConfirmed,
+}
+
+impl Library {
+    /// What removing `digest` from app-owned storage would cost.
+    ///
+    /// Reports rather than acts. Identities are never part of the cost —
+    /// removing bytes never deletes the Game, Release, or ROM Set that named
+    /// them; they simply become unavailable.
+    pub fn removal_impact(
+        &self,
+        store: &Store,
+        digest: &str,
+    ) -> Result<RemovalImpact, ImportError> {
+        let mut impact = RemovalImpact::default();
+
+        // If a healthy container also holds this ROM, the loose copy is not
+        // load-bearing and removing it costs nothing.
+        for container in store.containers_holding(digest)? {
+            if container != digest
+                && store.object_is_healthy(&container)?
+                && self.object_path(&container).exists()
+            {
+                impact.still_reproducible_elsewhere = true;
+            }
+        }
+        if impact.still_reproducible_elsewhere {
+            return Ok(impact);
+        }
+
+        impact.rom_sets_becoming_unavailable = store.rom_sets_using(digest)?;
+        impact.rom_packs_becoming_unsyncable = store.rom_packs_selecting_content(digest)?;
+        Ok(impact)
+    }
+
+    /// Removes managed bytes.
+    ///
+    /// Refuses unless `confirmed` when the impact says content would become
+    /// unavailable. Library identities are **retained** — a ROM Set whose bytes
+    /// were removed still exists, it is simply unavailable, and reimporting the
+    /// same content makes it whole again without the user rebuilding anything.
+    pub fn remove_managed_object(
+        &self,
+        store: &Store,
+        digest: &str,
+        confirmed: bool,
+    ) -> Result<RemovalImpact, DeletionBlocked> {
+        let impact = self
+            .removal_impact(store, digest)
+            .map_err(|_| DeletionBlocked::NotConfirmed)?;
+        if impact.requires_confirmation() && !confirmed {
+            return Err(DeletionBlocked::NotConfirmed);
+        }
+        let _ = fs::remove_file(self.object_path(digest));
+        let _ = store.forget_source_object(digest);
+        Ok(impact)
+    }
+}

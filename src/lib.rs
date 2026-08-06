@@ -26,8 +26,8 @@ pub use domain::{
 };
 pub use durable::{DurableError, approve, execute_approved};
 pub use library::{
-    Container, ImportError, Imported, IntegrityReport, Library, ScanReport, SetAvailability,
-    SetState, Skipped,
+    Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
+    ScanReport, SetAvailability, SetState, Skipped,
 };
 pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
 pub use transport::{
