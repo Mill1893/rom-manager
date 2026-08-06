@@ -546,3 +546,112 @@ fn walk(
     }
     Ok(())
 }
+
+/// Whether a ROM Set can be synced, and if not, which kind of problem it is.
+///
+/// These are three genuinely different situations and are never collapsed:
+/// *incomplete* means the set is missing structure or membership; *unavailable*
+/// means the set is whole but something it needs cannot be reproduced; and
+/// *available* means its complete dependency closure can be materialized right
+/// now.
+///
+/// A user can act on each differently — find the missing ROM, reconnect the
+/// drive it came from, or just sync — which is exactly why one "not ready"
+/// state would be useless.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SetState {
+    Incomplete,
+    Unavailable,
+    Available,
+}
+
+/// A ROM Set's state together with the specific reasons behind it.
+///
+/// Reasons are kept separately from the state so a state can be acted on
+/// programmatically while the explanation stays specific enough to be useful.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetAvailability {
+    pub state: SetState,
+    /// Members the set expects but does not have.
+    pub missing_members: Vec<String>,
+    /// Members present but not reproducible — no healthy occurrence.
+    pub unreproducible_members: Vec<String>,
+}
+
+impl SetAvailability {
+    pub fn is_syncable(&self) -> bool {
+        self.state == SetState::Available
+    }
+}
+
+impl Library {
+    /// Whether a single ROM can be reproduced right now.
+    ///
+    /// True only when a **healthy managed** occurrence exists. A cached copy is
+    /// deliberately not consulted: the cache is disposable, so letting it
+    /// establish availability would mean clearing the cache could make content
+    /// unavailable.
+    pub fn rom_is_available(&self, store: &Store, digest: &str) -> Result<bool, ImportError> {
+        // Owned directly as its own source object.
+        if store.object_is_healthy(digest)? && self.object_path(digest).exists() {
+            return Ok(true);
+        }
+        // Or reproducible from a healthy container that holds it. A ROM inside
+        // an archive has no source object of its own — the archive is what was
+        // imported — so its health is the container's.
+        for container in store.containers_holding(digest)? {
+            if store.object_is_healthy(&container)? && self.object_path(&container).exists() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Classifies a ROM Set from its expected membership and dependency
+    /// closure.
+    ///
+    /// `expected` is what the set should contain; `present` is what it actually
+    /// has. Both are content digests.
+    pub fn set_availability(
+        &self,
+        store: &Store,
+        expected: &[String],
+        present: &[String],
+        dependencies: &[String],
+    ) -> Result<SetAvailability, ImportError> {
+        let missing_members: Vec<String> = expected
+            .iter()
+            .filter(|digest| !present.contains(digest))
+            .cloned()
+            .collect();
+
+        // Structure first: a set that is not whole cannot be judged on whether
+        // its parts are reproducible.
+        if !missing_members.is_empty() {
+            return Ok(SetAvailability {
+                state: SetState::Incomplete,
+                missing_members,
+                unreproducible_members: Vec::new(),
+            });
+        }
+
+        // The set is whole. Can everything it needs — members *and* the
+        // dependency closure — actually be produced?
+        let mut unreproducible_members = Vec::new();
+        for digest in present.iter().chain(dependencies.iter()) {
+            if !self.rom_is_available(store, digest)? {
+                unreproducible_members.push(digest.clone());
+            }
+        }
+
+        Ok(SetAvailability {
+            state: if unreproducible_members.is_empty() {
+                SetState::Available
+            } else {
+                SetState::Unavailable
+            },
+            missing_members: Vec::new(),
+            unreproducible_members,
+        })
+    }
+}
