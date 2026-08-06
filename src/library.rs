@@ -1,0 +1,192 @@
+//! Importing content into app-owned Library storage (issue #57).
+//!
+//! # The property this module exists to deliver
+//!
+//! **An imported ROM outlives its source.** After a successful import the
+//! original file can be moved, renamed, deleted, or live on a drive that is
+//! never plugged in again, and the ROM is still fully usable. The external path
+//! is recorded as provenance — where these bytes were once seen — and is never
+//! where the content lives.
+//!
+//! # Stage, verify, commit
+//!
+//! Import is three steps, in this order, per source object:
+//!
+//! 1. **Stage** — copy the bytes into app-owned storage under a temporary name,
+//!    hashing as they are read.
+//! 2. **Verify** — read the staged copy back and confirm it hashes to the same
+//!    value. A copy that was not written correctly must never become Library
+//!    content.
+//! 3. **Commit** — move the staged file to its content-addressed home and record
+//!    it, then record the origin observation.
+//!
+//! Each source object runs this independently, so **one failed candidate does
+//! not roll back successful imports**. A partly-successful batch is the normal
+//! outcome of importing a folder where one file is unreadable, and the user
+//! keeps everything that worked.
+//!
+//! # Immutability
+//!
+//! A committed source object is never rewritten. Re-importing identical bytes
+//! adds an origin observation and touches nothing else. A later mismatch is
+//! corruption to be quarantined, never an update to apply — that is issue #61's
+//! to implement; this slice establishes the invariant it depends on.
+
+use std::{
+    fs,
+    io::{self, Read},
+    path::{Path, PathBuf},
+};
+
+use crate::{Store, StoreError, sha256};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ImportError {
+    #[error("cannot read the source: {0}")]
+    Source(String),
+    #[error("app-owned storage could not be written: {0}")]
+    Storage(String),
+    #[error("the staged copy did not match what was read")]
+    StagingMismatch,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// What one import attempt did.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Imported {
+    pub content_digest: String,
+    pub size: u64,
+    /// False when these exact bytes were already owned, so this import added
+    /// provenance rather than content.
+    pub stored_new_object: bool,
+}
+
+/// The root of app-owned Library storage.
+pub struct Library {
+    root: PathBuf,
+}
+
+impl Library {
+    pub fn open(root: impl Into<PathBuf>) -> Result<Self, ImportError> {
+        let root = root.into();
+        fs::create_dir_all(root.join("objects"))
+            .map_err(|error| ImportError::Storage(error.to_string()))?;
+        fs::create_dir_all(root.join("staging"))
+            .map_err(|error| ImportError::Storage(error.to_string()))?;
+        Ok(Self { root })
+    }
+
+    /// Content-addressed home for a digest, fanned out so no directory grows
+    /// without bound.
+    fn object_path(&self, digest: &str) -> PathBuf {
+        self.root
+            .join("objects")
+            .join(&digest[..2])
+            .join(&digest[2..])
+    }
+
+    /// Imports one file, leaving the source untouched.
+    ///
+    /// `now` is supplied rather than read from the clock so imports are
+    /// reproducible in tests.
+    pub fn import_file(
+        &self,
+        store: &Store,
+        source: &Path,
+        now: i64,
+    ) -> Result<Imported, ImportError> {
+        let file_name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| ImportError::Source("the source has no usable file name".into()))?
+            .to_owned();
+
+        // 1. Stage — copy into app-owned storage, hashing what is actually read
+        //    rather than trusting a separate pass over the source, which could
+        //    see different bytes.
+        let (staged, digest, size) = self.stage(source)?;
+
+        // 2. Verify — the staged copy must reproduce the same digest. Written
+        //    bytes that do not read back correctly never become Library
+        //    content.
+        let staged_digest = digest_of(&staged).map_err(|error| {
+            let _ = fs::remove_file(&staged);
+            ImportError::Storage(error.to_string())
+        })?;
+        if staged_digest != digest {
+            let _ = fs::remove_file(&staged);
+            return Err(ImportError::StagingMismatch);
+        }
+
+        // 3. Commit — move into place, then record. Recording after the move
+        //    means durable state never names an object that is not there yet.
+        let destination = self.object_path(&digest);
+        let already_owned = destination.exists();
+        if already_owned {
+            // Identical bytes are already owned. The staged copy is redundant;
+            // the existing object is immutable and is not touched.
+            let _ = fs::remove_file(&staged);
+        } else {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| ImportError::Storage(error.to_string()))?;
+            }
+            fs::rename(&staged, &destination)
+                .map_err(|error| ImportError::Storage(error.to_string()))?;
+        }
+
+        let stored = self
+            .object_path(&digest)
+            .strip_prefix(&self.root)
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| digest.clone());
+
+        store.record_source_object(&digest, size, &stored, now)?;
+        store.record_origin_observation(&digest, &source.to_string_lossy(), &file_name, now)?;
+
+        Ok(Imported {
+            content_digest: digest,
+            size,
+            stored_new_object: !already_owned,
+        })
+    }
+
+    /// Imports several files, continuing past failures.
+    ///
+    /// Returns one result per input, in order. A batch where some candidates
+    /// fail is the normal outcome of scanning a folder, and everything that
+    /// worked is kept.
+    pub fn import_all(
+        &self,
+        store: &Store,
+        sources: &[PathBuf],
+        now: i64,
+    ) -> Vec<Result<Imported, ImportError>> {
+        sources
+            .iter()
+            .map(|source| self.import_file(store, source, now))
+            .collect()
+    }
+
+    /// Reads the content of an owned object. This is what makes an import
+    /// durable: it never consults the origin.
+    pub fn read_object(&self, digest: &str) -> Result<Vec<u8>, ImportError> {
+        fs::read(self.object_path(digest)).map_err(|error| ImportError::Storage(error.to_string()))
+    }
+
+    fn stage(&self, source: &Path) -> Result<(PathBuf, String, u64), ImportError> {
+        let bytes = fs::read(source).map_err(|error| ImportError::Source(error.to_string()))?;
+        let digest = sha256(&bytes);
+        let staged = self.root.join("staging").join(&digest);
+        fs::write(&staged, &bytes).map_err(|error| ImportError::Storage(error.to_string()))?;
+        Ok((staged, digest, bytes.len() as u64))
+    }
+}
+
+fn digest_of(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(sha256(&bytes))
+}

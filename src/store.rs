@@ -29,12 +29,13 @@ use crate::{Approval, ManagedArtifactManifest, SyncPlan};
 const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../migrations/0001_initial.sql")),
     (2, include_str!("../migrations/0002_library.sql")),
+    (3, include_str!("../migrations/0003_library_storage.sql")),
 ];
 
 /// The schema version this build expects. A store opened at a lower version is
 /// migrated up; one opened at a *higher* version was written by a newer build
 /// and is refused rather than guessed at.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -253,6 +254,80 @@ impl Store {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    // ---- App-owned Library storage ---------------------------------------
+
+    /// Records an owned source object. Immutable: re-recording identical bytes
+    /// leaves the original row, and its import time, alone.
+    pub fn record_source_object(
+        &self,
+        content_digest: &str,
+        size: u64,
+        stored_path: &str,
+        imported_at: i64,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "INSERT INTO source_object (content_digest, size, stored_path, imported_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(content_digest) DO NOTHING",
+            params![content_digest, size, stored_path, imported_at],
+        )?;
+        Ok(())
+    }
+
+    /// Records where bytes were seen. Provenance only — losing this costs the
+    /// trail back to the original file, never the content.
+    pub fn record_origin_observation(
+        &self,
+        content_digest: &str,
+        external_path: &str,
+        file_name: &str,
+        observed_at: i64,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "INSERT INTO origin_observation
+                 (content_digest, external_path, file_name, observed_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(content_digest, external_path)
+                 DO UPDATE SET observed_at = excluded.observed_at,
+                               unavailable_at = NULL",
+            params![content_digest, external_path, file_name, observed_at],
+        )?;
+        Ok(())
+    }
+
+    /// `(size, stored_path, health)` for an owned object.
+    pub fn source_object(
+        &self,
+        content_digest: &str,
+    ) -> Result<Option<(u64, String, String)>, StoreError> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT size, stored_path, health FROM source_object WHERE content_digest = ?1",
+                params![content_digest],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?)
+    }
+
+    /// Every path these bytes have been seen at, oldest first.
+    pub fn origin_observations(&self, content_digest: &str) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT external_path FROM origin_observation
+              WHERE content_digest = ?1 ORDER BY id",
+        )?;
+        let rows = statement.query_map(params![content_digest], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn owned_object_count(&self) -> Result<usize, StoreError> {
+        Ok(self
+            .connection
+            .query_row("SELECT COUNT(*) FROM source_object", [], |row| {
+                row.get::<_, i64>(0)
+            })? as usize)
     }
 
     // ---- Sync Plans and approvals ----------------------------------------
