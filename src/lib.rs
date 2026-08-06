@@ -11,6 +11,7 @@ mod durable;
 mod esde;
 mod gamelist;
 mod library;
+mod merge;
 mod projection;
 mod store;
 mod transport;
@@ -33,6 +34,9 @@ pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OW
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
+};
+pub use merge::{
+    FieldOutcome, LedgerEntry, conflicts, merge_entry, merge_field, requires_user_decision,
 };
 pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
