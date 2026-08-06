@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ROM Manager
+Comment=Organize your ROMs and sync them to handhelds
+Exec=rom-manager
+Icon=rom-manager
+Categories=Game;Utility;
+Terminal=false
