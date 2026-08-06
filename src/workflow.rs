@@ -37,9 +37,9 @@ pub enum ExecutionOutcome {
 /// the failed operation did not establish.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Residue {
-    pub path: crate::RelativePath,
+    pub path: RelativePath,
     /// The action that was in flight when the outcome became uncertain.
-    pub attempted: String,
+    pub attempted: Action,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -56,8 +56,8 @@ pub enum SyncError {
     PlanChanged,
     #[error("permanent removal acknowledgement does not match the Sync Plan")]
     RemovalAcknowledgement,
-    #[error("the approval does not authorize this Sync Plan against this binding")]
-    ApprovalInvalid,
+    #[error("the approval does not authorize this Sync Plan against this binding: {0}")]
+    ApprovalInvalid(&'static str),
     #[error("initializing or replacing a Media Target marker requires explicit confirmation")]
     ConfirmationRequired,
 }
@@ -70,6 +70,7 @@ pub struct SyncCore<T: Transport> {
     rom_pack_revision: u64,
     local_manifest: Option<ManagedArtifactManifest>,
     refreshed: Option<crate::Inventory>,
+    observed_marker: Option<TargetMarker>,
 }
 
 impl<T: Transport> SyncCore<T> {
@@ -88,6 +89,7 @@ impl<T: Transport> SyncCore<T> {
             rom_pack_revision,
             local_manifest: None,
             refreshed: None,
+            observed_marker: None,
         }
     }
 
@@ -135,6 +137,7 @@ impl<T: Transport> SyncCore<T> {
             self.refreshed = None;
             return Err(SyncError::MarkerConflict);
         }
+        self.observed_marker = marker;
         self.refreshed = Some(self.transport.inventory()?);
         Ok(())
     }
@@ -254,6 +257,23 @@ impl<T: Transport> SyncCore<T> {
             }
         }
 
+        // Names the target holds that the namespace cannot represent. They are
+        // preserved and disclosed like any other unknown content; they block
+        // only where one contends with a desired path, because then the
+        // application cannot tell which object a planned spelling would select.
+        let mut preserved_unrepresentable = Vec::new();
+        for name in &inventory.unrepresentable {
+            let key = RelativePath::key_of(name);
+            if expected_paths
+                .iter()
+                .any(|path| path.equivalence_key() == key)
+            {
+                blocked.push(BlockReason::InvalidTargetPath { path: name.clone() });
+            } else {
+                preserved_unrepresentable.push(name.clone());
+            }
+        }
+
         // Row 10 — managed content the manifest names but the target no longer
         // holds. Disclosed, and never converted into a removal elsewhere.
         let missing_managed = manifest
@@ -365,11 +385,13 @@ impl<T: Transport> SyncCore<T> {
                 &self.transport.locator(),
                 &capabilities,
                 &manifest,
+                self.observed_marker.as_ref(),
             ),
             actions,
             preserved_unknowns,
             preserved_duplicates,
             missing_managed,
+            preserved_unrepresentable,
             blocked,
             required_capacity: required_with_margin,
             safety_margin: CAPACITY_MARGIN,
@@ -401,14 +423,32 @@ impl<T: Transport> SyncCore<T> {
         // The approval must name this exact plan and this exact binding. An
         // approval granted for a different, smaller plan can never authorize a
         // larger one.
-        if approval.plan_digest != plan.digest
-            || approval.target_id != plan.target_id
-            || approval.profile_id != plan.profile_id
-            || approval.profile_revision != plan.profile_revision
-            || approval.binding_locator != plan.binding_locator
-            || approval.inventory_digest != plan.inventory_digest
-        {
-            return Err(SyncError::ApprovalInvalid);
+        for (matches, mismatch) in [
+            (approval.plan_digest == plan.digest, "plan digest"),
+            (
+                approval.target_id == plan.target_id,
+                "Media Target identity",
+            ),
+            (
+                approval.profile_id == plan.profile_id,
+                "Device Profile identity",
+            ),
+            (
+                approval.profile_revision == plan.profile_revision,
+                "Device Profile revision",
+            ),
+            (
+                approval.binding_locator == plan.binding_locator,
+                "Transport Binding locator",
+            ),
+            (
+                approval.inventory_digest == plan.inventory_digest,
+                "inventory evidence",
+            ),
+        ] {
+            if !matches {
+                return Err(SyncError::ApprovalInvalid(mismatch));
+            }
         }
         if plan.removal_count() != approval.removals_acked {
             return Err(SyncError::RemovalAcknowledgement);
@@ -497,7 +537,7 @@ impl<T: Transport> SyncCore<T> {
                             reason: format!("read-back verification failed for {}", action.path),
                             residue: vec![Residue {
                                 path: action.path.clone(),
-                                attempted: "add".into(),
+                                attempted: Action::Add,
                             }],
                         });
                     }
@@ -564,13 +604,7 @@ impl<T: Transport> SyncCore<T> {
             }
             let current_bytes = match self.transport.read(&action.path) {
                 Ok(bytes) => bytes,
-                Err(error) => {
-                    self.refreshed = None;
-                    return Ok(ExecutionOutcome::Indeterminate {
-                        reason: error.to_string(),
-                        residue: Vec::new(),
-                    });
-                }
+                Err(error) => return Ok(self.stopped_before_removal(error)),
             };
             if sha256(&current_bytes) != action.sha256 {
                 self.refreshed = None;
@@ -580,11 +614,7 @@ impl<T: Transport> SyncCore<T> {
                 });
             }
             if let Err(error) = self.transport.delete_leaf(&action.path) {
-                self.refreshed = None;
-                return Ok(ExecutionOutcome::Indeterminate {
-                    reason: error.to_string(),
-                    residue: Vec::new(),
-                });
+                return Ok(self.stopped_before_removal(error));
             }
         }
 
@@ -651,6 +681,26 @@ impl<T: Transport> SyncCore<T> {
                 .all(|path| self.path_is_managed(path))
     }
 
+    /// A failure during the removal phase. Any failure halts the operation and
+    /// no further removals are attempted — their justification was the
+    /// verified additions of *this* operation, and it lapses the moment the
+    /// operation stops proceeding as planned.
+    fn stopped_before_removal(&mut self, error: TransportError) -> ExecutionOutcome {
+        self.refreshed = None;
+        match error {
+            // Only a disconnect leaves it unestablished whether the deletion
+            // landed; a definite error means the target state is known.
+            TransportError::Disconnected => ExecutionOutcome::Indeterminate {
+                reason: "target disconnected during removal".into(),
+                residue: Vec::new(),
+            },
+            error => ExecutionOutcome::Incomplete {
+                reason: error.to_string(),
+                residue: Vec::new(),
+            },
+        }
+    }
+
     fn failed_after_side_effect(&mut self, error: TransportError) -> ExecutionOutcome {
         self.refreshed = None;
         match error {
@@ -677,6 +727,7 @@ fn inventory_digest(
     locator: &str,
     capabilities: &crate::TransportCapabilities,
     manifest: &ManagedArtifactManifest,
+    marker: Option<&TargetMarker>,
 ) -> String {
     #[derive(serde::Serialize)]
     struct Observed<'a> {
@@ -684,6 +735,8 @@ fn inventory_digest(
         capabilities: &'a crate::TransportCapabilities,
         locator: &'a str,
         manifest: &'a ManagedArtifactManifest,
+        marker: Option<&'a TargetMarker>,
+        unrepresentable: &'a [String],
     }
 
     // Raw free bytes are deliberately excluded. On a shared volume they drift
@@ -702,6 +755,8 @@ fn inventory_digest(
         capabilities,
         locator,
         manifest,
+        marker,
+        unrepresentable: &inventory.unrepresentable,
     };
     sha256(&serde_json::to_vec(&observed).expect("observed evidence is serializable"))
 }

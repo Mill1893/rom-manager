@@ -89,6 +89,11 @@ pub struct Inventory {
     pub generation: u64,
     pub free_bytes: u64,
     pub artifacts: BTreeMap<RelativePath, InventoryArtifact>,
+    /// Names observed on the target that the namespace cannot represent — an
+    /// NFD spelling, a trailing dot, a reserved basename. Reported verbatim so
+    /// planning can preserve and disclose them. A transport never repairs a
+    /// name, and an unrepresentable one is not an I/O error.
+    pub unrepresentable: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -162,6 +167,7 @@ pub struct FakeTransport {
     manifest: Option<ManagedArtifactManifest>,
     artifacts: BTreeMap<RelativePath, Vec<u8>>,
     directories: std::collections::BTreeSet<RelativePath>,
+    unrepresentable: Vec<String>,
     capacity: u64,
     generation: u64,
     fault: Option<FakeFault>,
@@ -176,6 +182,7 @@ impl FakeTransport {
             manifest: None,
             artifacts: BTreeMap::new(),
             directories: std::collections::BTreeSet::new(),
+            unrepresentable: Vec::new(),
             capacity,
             generation: 0,
             fault: None,
@@ -199,6 +206,14 @@ impl FakeTransport {
     /// occupied by one.
     pub fn with_directory(mut self, path: RelativePath) -> Self {
         self.directories.insert(path);
+        self.generation += 1;
+        self
+    }
+
+    /// Plants a name the namespace cannot represent, as a real target could
+    /// already hold — an NFD spelling, a trailing dot, a reserved basename.
+    pub fn with_unrepresentable(mut self, name: impl Into<String>) -> Self {
+        self.unrepresentable.push(name.into());
         self.generation += 1;
         self
     }
@@ -281,6 +296,7 @@ impl Transport for FakeTransport {
         Ok(Inventory {
             generation: self.generation,
             free_bytes: self.capacity.saturating_sub(used),
+            unrepresentable: self.unrepresentable.clone(),
             artifacts: self
                 .directories
                 .iter()
@@ -445,6 +461,7 @@ impl FilesystemTransport {
         &self,
         directory: &Path,
         artifacts: &mut BTreeMap<RelativePath, InventoryArtifact>,
+        unrepresentable: &mut Vec<String>,
     ) -> Result<(), TransportError> {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
@@ -457,12 +474,15 @@ impl FilesystemTransport {
                 )));
             }
             if file_type.is_dir() {
-                if let Some(relative) = self.relative(&path)?
-                    && let Ok(relative) = RelativePath::new(relative)
-                {
-                    artifacts.insert(relative, InventoryArtifact::directory());
+                if let Some(relative) = self.relative(&path)? {
+                    match RelativePath::new(relative.clone()) {
+                        Ok(relative) => {
+                            artifacts.insert(relative, InventoryArtifact::directory());
+                        }
+                        Err(_) => unrepresentable.push(relative),
+                    }
                 }
-                self.visit_files(&path, artifacts)?;
+                self.visit_files(&path, artifacts, unrepresentable)?;
             } else {
                 let relative = path
                     .strip_prefix(&self.root)
@@ -472,8 +492,14 @@ impl FilesystemTransport {
                 if relative == MARKER_PATH || relative == MANIFEST_PATH {
                     continue;
                 }
-                let path = RelativePath::new(relative)
-                    .map_err(|error| TransportError::Io(error.to_string()))?;
+                // An unrepresentable name is observed content, not an I/O
+                // error. Failing here would make one stray NFD or trailing-dot
+                // file render the whole Media Target unusable, when the rule is
+                // to preserve and disclose it.
+                let Ok(path) = RelativePath::new(relative.clone()) else {
+                    unrepresentable.push(relative);
+                    continue;
+                };
                 let bytes = fs::read(entry.path())?;
                 artifacts.insert(
                     path,
@@ -512,11 +538,14 @@ impl Transport for FilesystemTransport {
 
     fn inventory(&mut self) -> Result<Inventory, TransportError> {
         let mut artifacts = BTreeMap::new();
-        self.visit_files(&self.root, &mut artifacts)?;
+        let mut unrepresentable = Vec::new();
+        self.visit_files(&self.root, &mut artifacts, &mut unrepresentable)?;
+        unrepresentable.sort();
         let free_bytes = fs2::available_space(&self.root)?;
         let fingerprint = artifacts
             .iter()
             .map(|(path, artifact)| format!("{path}\0{}\0{}\n", artifact.size, artifact.sha256))
+            .chain(unrepresentable.iter().map(|name| format!("{name}\0?\n")))
             .collect::<String>();
         let generation = u64::from_str_radix(&sha256(fingerprint.as_bytes())[..16], 16)
             .expect("SHA-256 prefix is hexadecimal");
@@ -524,6 +553,7 @@ impl Transport for FilesystemTransport {
             generation,
             free_bytes,
             artifacts,
+            unrepresentable,
         })
     }
 

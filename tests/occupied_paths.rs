@@ -231,3 +231,40 @@ fn directories_are_not_reported_as_unknown_or_duplicate_content() {
             .any(|path| path.as_str() == "ROMs/nes/Subfolder")
     );
 }
+
+#[test]
+fn an_unrepresentable_observed_name_is_preserved_not_an_error() {
+    // Regression: tightening RelativePath made the filesystem transport fail
+    // inventory() on any name the namespace cannot represent, so one stray NFD
+    // or trailing-dot file rendered the whole Media Target unusable. Observed
+    // names are reported verbatim and preserved; only contention blocks.
+    let transport = fake().with_unrepresentable("ROMs/nes/cafe\u{301}.nes");
+    let plan = plan_with(transport, None);
+
+    assert!(
+        plan.preserved_unrepresentable
+            .iter()
+            .any(|name| name == "ROMs/nes/cafe\u{301}.nes"),
+        "an unrepresentable name must be preserved and disclosed"
+    );
+    // It contends with nothing desired, so the plan still runs.
+    assert!(plan.is_executable());
+}
+
+#[test]
+fn an_unrepresentable_name_contending_with_a_desired_path_blocks() {
+    // A trailing-dot spelling of the desired name: Win32 path parsing would
+    // resolve it to the same file, so planning cannot tell which object a
+    // planned spelling would select.
+    let transport = fake().with_unrepresentable(format!("{DESIRED}."));
+    let plan = plan_with(transport, None);
+
+    assert!(!plan.is_executable());
+    assert!(
+        plan.blocked
+            .iter()
+            .any(|reason| matches!(reason, BlockReason::InvalidTargetPath { .. })),
+        "expected InvalidTargetPath, got {:?}",
+        plan.blocked
+    );
+}

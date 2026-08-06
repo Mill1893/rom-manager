@@ -124,7 +124,14 @@ impl RelativePath {
     /// folding yields a disclosed block; under-folding would be a silent
     /// overwrite. It is never a substitute for an atomic create-if-absent.
     pub fn equivalence_key(&self) -> String {
-        self.0.split('/').map(fold).collect::<Vec<_>>().join("/")
+        Self::key_of(&self.0)
+    }
+
+    /// The same key for a raw observed name that is *not* a valid target path.
+    /// Transports report names verbatim, so planning still has to reason about
+    /// names the namespace would never emit.
+    pub fn key_of(raw: &str) -> String {
+        raw.split('/').map(fold).collect::<Vec<_>>().join("/")
     }
 }
 
@@ -152,7 +159,15 @@ fn nfc(value: &str) -> String {
 }
 
 fn fold(value: &str) -> String {
-    nfc(value).to_lowercase()
+    // Trailing dots and spaces are trimmed because Win32 path parsing trims
+    // them: probe evidence in issue #52 showed a create of `rom.nes.` resolving
+    // to `rom.nes`. Valid target paths can never carry them — validation rejects
+    // them outright — so this only ever matters for raw observed names, where it
+    // is what lets an aliasing spelling be recognized as contending.
+    nfc(value)
+        .to_lowercase()
+        .trim_end_matches(['.', ' '])
+        .to_owned()
 }
 
 impl fmt::Display for RelativePath {
@@ -399,6 +414,9 @@ pub struct SyncPlan {
     /// Managed content the manifest names that the target no longer holds.
     /// Disclosed only — absence is never licence to remove anything else.
     pub missing_managed: Vec<RelativePath>,
+    /// Observed names the target-path namespace cannot represent. Preserved and
+    /// disclosed; they block only when one contends with a desired path.
+    pub preserved_unrepresentable: Vec<String>,
     pub blocked: Vec<BlockReason>,
     pub required_capacity: u64,
     pub safety_margin: u64,
@@ -445,7 +463,10 @@ impl SyncPlan {
 /// Because it binds the plan digest, and that digest covers every action's path
 /// and content hash, approving a plan *is* approving exactly the adoptions it
 /// names — adoption needs no separate consent, and execution can never widen it.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Deliberately neither `Clone` nor serializable: cloning would defeat
+/// single-use, and durable storage of approvals belongs to the persistence
+/// slice, not to this in-memory contract.
+#[derive(Debug, Eq, PartialEq)]
 pub struct Approval {
     pub plan_digest: String,
     pub removals_acked: usize,

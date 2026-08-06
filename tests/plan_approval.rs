@@ -55,9 +55,10 @@ fn an_approval_for_a_different_plan_is_rejected() {
     let mut forged = Approval::grant(&plan, plan.removal_count());
     forged.plan_digest = "0".repeat(64);
 
+    // The rejection names the specific mismatch rather than failing opaquely.
     assert!(matches!(
         core.execute(&plan, forged, &CancellationToken::default()),
-        Err(SyncError::ApprovalInvalid)
+        Err(SyncError::ApprovalInvalid("plan digest"))
     ));
 }
 
@@ -71,7 +72,7 @@ fn an_approval_bound_to_another_binding_is_rejected() {
 
     assert!(matches!(
         core.execute(&plan, elsewhere, &CancellationToken::default()),
-        Err(SyncError::ApprovalInvalid)
+        Err(SyncError::ApprovalInvalid("Transport Binding locator"))
     ));
 }
 
@@ -85,7 +86,7 @@ fn an_approval_bound_to_stale_evidence_is_rejected() {
 
     assert!(matches!(
         core.execute(&plan, stale, &CancellationToken::default()),
-        Err(SyncError::ApprovalInvalid)
+        Err(SyncError::ApprovalInvalid("inventory evidence"))
     ));
 }
 
@@ -141,7 +142,7 @@ fn target_mutation_between_planning_and_execution_invalidates_the_approval() {
     assert!(
         matches!(
             outcome,
-            Err(SyncError::PlanChanged) | Err(SyncError::ApprovalInvalid)
+            Err(SyncError::PlanChanged) | Err(SyncError::ApprovalInvalid(_))
         ),
         "a target that changed underneath the user must not be written to"
     );
