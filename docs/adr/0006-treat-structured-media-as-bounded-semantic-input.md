@@ -1,0 +1,3 @@
+# Treat structured media as bounded semantic input
+
+Structured media imports use explicit, versioned format subsets rather than every feature a dependency can decode: narrow ZIP and descriptor parsing stays in the Rust core, while expensive 7z, CHD, CSO, and RVZ decoding runs behind a supervised worker boundary. ROM identity follows representation semantics and verified logical bytes while exact source encodings remain provenance and Sync Plans pin the concrete bytes to transfer; this prevents compression choices from changing Library identity without sacrificing deterministic sync or allowing hostile input unbounded access to application resources.

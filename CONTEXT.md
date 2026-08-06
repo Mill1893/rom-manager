@@ -5,7 +5,7 @@ The domain of maintaining a canonical game-file collection and curating selectio
 ## Language
 
 **Library**:
-The canonical collection of user-supplied Games and their playable content managed on the desktop.
+The canonical collection of user-supplied Games and their playable content managed on the desktop. Successfully imported content remains available from durable app-owned storage without depending on its external source location.
 _Avoid_: Collection, catalog
 
 **Game**:
@@ -21,23 +21,39 @@ A representation-aware transformation that derives a Release from an exact base.
 _Avoid_: Mod, ROM hack file
 
 **ROM Set**:
-The expected content for one runnable representation of one Release, including ordered multi-file or multi-disc content and required dependencies. Its exact content identity is the ordered membership, roles, and dependency structure of its ROMs. A ROM Set may be retained while incomplete but cannot belong to a ROM Pack until complete. Materially different representations are distinct but related ROM Sets, and distinct Releases retain distinct ROM Sets even when they reuse identical ROMs.
+The expected content for one runnable representation of one Release, including ordered multi-file or multi-disc content and required dependencies. Its exact content identity is the ordered membership, roles, and dependency structure of its ROMs. A ROM Set is incomplete when expected structure or membership is absent, unavailable when complete but any required ROM or dependency is unavailable, and available only when its complete dependency closure can be materialized. Materially different representations are distinct but related ROM Sets, and distinct Releases retain distinct ROM Sets even when they reuse identical ROMs.
 _Avoid_: Playable variant, ROM bundle
 
 **ROM**:
-A representation-aware content component of one or more ROM Sets. Exact ROM identity requires the same representation and byte content; names, paths, archive bytes, and catalog matches are not proof of equality.
+A representation-aware content component of one or more ROM Sets. Exact ROM identity requires the same representation semantics, behavior-bearing structure, and logical byte content; source compression layout, descriptor formatting, names, paths, archive bytes, and catalog matches are not proof of equality. No Source Occurrence is canonical: a ROM is available when at least one healthy managed occurrence can reproduce it and unavailable otherwise.
 _Avoid_: ROM file, source file
 
 **Source Occurrence**:
-A filesystem file or archive member from which a ROM's bytes can be read. Multiple Source Occurrences may supply the same ROM.
+A filesystem file or archive member from which a ROM's bytes can be read. Multiple Source Occurrences may supply the same ROM. Library availability depends only on occurrences retained in app-owned storage, not on external locations from which they were imported.
 _Avoid_: ROM, duplicate ROM
 
 **Source Container**:
-Packaging, such as an archive, that exposes one or more Source Occurrences while retaining its own provenance. A Source Container is not a Game, Release, ROM Set, or ROM identity.
+Packaging, such as an archive, that exposes one or more Source Occurrences while retaining its own provenance. Imported Source Containers are retained unchanged in app-owned storage; extracted or transformed content is derived materialization. A Source Container is not a Game, Release, ROM Set, or ROM identity.
 _Avoid_: ROM Set, bundle
 
+**Import Folder**:
+A remembered external filesystem root scanned only on explicit request to discover import candidates. It may provide an authoritative default Platform, but traversal does not follow filesystem indirections. Moving, changing, or losing an Import Folder does not alter content already retained in the Library.
+_Avoid_: Watched folder, Library folder
+
+**Import Candidate**:
+An external file or Source Container discovered for possible import. It is not Library content until its Platform and ROM Set grouping are established and its bytes are copied, strongly verified, and committed to app-owned storage.
+_Avoid_: Pending ROM, Library content
+
+**Origin Observation**:
+Provenance evidence that an external location contained a particular import candidate during a completed scan. It may later be moved, missing, or superseded without changing the identity or availability of imported Library content.
+_Avoid_: Source Occurrence, managed copy
+
+**Materialization Cache**:
+Disposable, strongly verified derived bytes that accelerate reading a ROM or producing a target form from durable Library content. Cache presence does not establish ROM availability, and eviction does not change Library identity or state.
+_Avoid_: Library storage, source copy
+
 **ROM Pack**:
-A curated selection of exact, complete ROM Sets from the Library intended for transfer to one or more devices. It may contain multiple ROM Sets from one Game, including locally identified content, and includes the deduplicated closure of their required dependencies.
+A curated selection of exact, complete ROM Sets from the Library intended for transfer to one or more devices. It may contain multiple ROM Sets from one Game, including locally identified content, and includes the deduplicated closure of their required dependencies. Its exact selections survive metadata corrections and loss of availability; unavailable content blocks planning and sync rather than causing substitution or deselection.
 _Avoid_: Playlist, bundle
 
 **Device Profile**:
@@ -73,9 +89,21 @@ An authoritative user-supplied metadata value or semantic relationship that take
 _Avoid_: Manual edit
 
 **Managed ROM**:
-A ROM on a Media Target whose relationship to the Library and prior synchronization is known strongly enough for the application to update or remove it safely.
+A Target Artifact whose relationship to the Library was established by verified application placement or user-approved adoption. Recognition without adoption does not grant authority to remove it.
 _Avoid_: Tracked file
 
+**Managed Artifact Manifest**:
+A versioned record of Managed ROM authority and verification evidence stored on its Media Target and mirrored in the local Library. Disagreement between the copies prevents destructive action until the affected content is reconciled explicitly.
+_Avoid_: Sync database, target cache
+
+**Target Artifact**:
+The concrete bytes at a canonical relative path produced from Library content for one Media Target under its active Device Profile. Retention requires both strong equality with the expected bytes and canonical placement; equal bytes elsewhere are a relocation candidate or duplicate rather than the expected Target Artifact.
+_Avoid_: Target file, transferred ROM
+
+**Metadata Projection**:
+The export-eligible effective Library fields mapped to one frontend entry for a canonical Target Artifact path under a Device Profile. Management authority and desired state apply to individual mapped fields, while the containing frontend document remains shared with frontend-owned and user-edited state.
+_Avoid_: Generated metadata file, managed gamelist
+
 **Sync Plan**:
-A preview of the additions, retained files, and removals needed to make a Media Target match a selected ROM Pack.
+An immutable preview of the additions, replacements, retentions, adoptions, and removals needed to make the Target Artifacts and Metadata Projections applicable to one Media Target match a selected ROM Pack under its active Device Profile. A Sync Plan applies to exactly one Media Target; unrecognized content and shared frontend state are preserved and shown separately.
 _Avoid_: Transfer queue, sync job

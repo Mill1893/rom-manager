@@ -1,0 +1,31 @@
+schema_version = 1
+
+[[cell]]
+name = "deterministic fake transport sync-core safety contract"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/sync_core.rs"
+
+[[cell]]
+name = "filesystem transport sync-core safety contract"
+requirement = "windows-sync-core"
+status = "implemented"
+evidence = "tests/sync_core.rs"
+
+[[cell]]
+name = "packaged Windows filesystem sync"
+requirement = "windows-sync-core"
+status = "blocked"
+evidence = "docs/validation/windows-sync-core/README.md"
+
+[[cell]]
+name = "packaged Windows WPD on AYN Odin 3"
+requirement = "windows-sync-core"
+status = "blocked"
+evidence = "docs/validation/windows-sync-core/README.md"
+
+[[cell]]
+name = "second unrelated Android device"
+requirement = "release-candidate"
+status = "deferred"
+evidence = "Define staged delivery milestones and acceptance criteria"
