@@ -13,6 +13,7 @@ mod gamelist;
 mod library;
 mod merge;
 mod projection;
+mod publish;
 mod retire;
 mod store;
 mod transport;
@@ -42,6 +43,10 @@ pub use merge::{
 pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
     disambiguate_titles,
+};
+pub use publish::{
+    DocumentState, Publication, PublishError, PublishPreconditions, RecoveryChoice, RecoveryCopy,
+    recover_missing_document,
 };
 pub use retire::{
     EligibilityAction, Ineligibility, ProjectionMove, Retirement, plan_retirement,
