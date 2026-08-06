@@ -428,3 +428,93 @@ impl ProviderTransport for FixtureTransport {
         wire::parse_lookup(&body, platform, 0)
     }
 }
+
+/// The real HTTP transport, behind the `provider-http` feature.
+///
+/// Deliberately not compiled by default. The default build has no
+/// network-capable code, and the privacy evidence depends on that staying true
+/// — so reaching the network is a build-time decision somebody makes on
+/// purpose, never something that arrives with a dependency bump.
+#[cfg(feature = "provider-http")]
+pub mod http {
+    use super::{Allowance, LookupOutcome, ProviderFailure, ProviderTransport, redact, wire};
+
+    const BASE: &str = "https://api.thegamesdb.net/v1";
+
+    /// Talks to TheGamesDB with a user-supplied key.
+    ///
+    /// The key is held only for the lifetime of this value, read from the OS
+    /// credential vault by the caller. It is never logged: every error this
+    /// type produces is redacted before it leaves.
+    pub struct HttpTransport {
+        key: String,
+        agent: ureq::Agent,
+    }
+
+    impl HttpTransport {
+        pub fn new(key: impl Into<String>) -> Self {
+            Self {
+                key: key.into(),
+                agent: ureq::Agent::new_with_defaults(),
+            }
+        }
+
+        /// Performs one request, mapping transport-level outcomes onto typed
+        /// failures. Requests are sequential by construction: this is a
+        /// blocking call and the adapter drives it one lookup at a time.
+        fn get(&mut self, path: &str, query: &[(&str, &str)]) -> Result<String, ProviderFailure> {
+            let mut request = self.agent.get(&format!("{BASE}{path}"));
+            request = request.query("apikey", &self.key);
+            for (name, value) in query {
+                request = request.query(*name, *value);
+            }
+
+            match request.call() {
+                Ok(mut response) => response
+                    .body_mut()
+                    .read_to_string()
+                    .map_err(|_| ProviderFailure::MalformedResponse),
+                Err(ureq::Error::StatusCode(401 | 403)) => Err(ProviderFailure::Authentication),
+                Err(ureq::Error::StatusCode(429)) => Err(ProviderFailure::QuotaExhausted {
+                    retry_after_seconds: None,
+                }),
+                Err(ureq::Error::StatusCode(code)) if (500..600).contains(&code) => {
+                    Err(ProviderFailure::Transient {
+                        retry_after_seconds: None,
+                    })
+                }
+                // A transport error is transient, not a verdict about the game.
+                // Redacted so a key can never reach a log through an error
+                // message.
+                Err(error) => {
+                    let _ = redact(&error.to_string(), &self.key);
+                    Err(ProviderFailure::Transient {
+                        retry_after_seconds: None,
+                    })
+                }
+            }
+        }
+    }
+
+    impl ProviderTransport for HttpTransport {
+        fn allowance(&mut self) -> Result<Allowance, ProviderFailure> {
+            // The non-consuming endpoint: asking how much is left must not
+            // itself spend any.
+            let body = self.get("/Games/ByGameID", &[("id", "1"), ("fields", "")])?;
+            wire::parse_allowance(&body)
+        }
+
+        fn lookup_by_hash(
+            &mut self,
+            platform: &str,
+            sha256: &str,
+        ) -> Result<LookupOutcome, ProviderFailure> {
+            let body = self.get("/Games/ByGameHash", &[("hash", sha256)])?;
+            let retrieved_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_secs() as i64)
+                .unwrap_or_default();
+            wire::parse_lookup(&body, platform, retrieved_at)
+        }
+    }
+}
