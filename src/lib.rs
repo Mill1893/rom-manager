@@ -10,9 +10,11 @@ mod confined;
 mod domain;
 mod durable;
 mod esde;
+mod filesystems;
 mod gamelist;
 mod library;
 mod merge;
+mod paths;
 mod projection;
 mod publish;
 mod retire;
@@ -37,6 +39,9 @@ pub use domain::{
 };
 pub use durable::{DurableError, approve, execute_approved};
 pub use esde::{DestinationRole, EsdeProfile, RoleAssignment};
+pub use filesystems::{
+    FilesystemSupport, ObservedFilesystem, fits, maximum_file_size, support_for,
+};
 pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OWNED_FIELDS};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
@@ -45,6 +50,7 @@ pub use library::{
 pub use merge::{
     FieldOutcome, LedgerEntry, conflicts, merge_entry, merge_field, requires_user_decision,
 };
+pub use paths::AppPaths;
 pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
     disambiguate_titles,
