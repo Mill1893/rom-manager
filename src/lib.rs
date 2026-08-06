@@ -10,6 +10,7 @@ mod durable;
 mod store;
 mod transport;
 mod workflow;
+mod wpd;
 
 pub use app::{
     AppEvent, CancellationState, MediaTargetChoice, OutcomeKind, OutcomeView, Phase, PlanView,
@@ -27,6 +28,9 @@ pub use transport::{
     InventoryArtifact, Transport, TransportCapabilities, TransportError,
 };
 pub use workflow::{ExecutionOutcome, OperationReport, Residue, SyncCore, SyncError};
+#[cfg(windows)]
+pub use wpd::Apartment;
+pub use wpd::{Backend, Reply, Request, Worker, WpdFault, WpdLikeBackend, mtp_capabilities};
 
 pub fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
