@@ -1,10 +1,15 @@
+/// Marker-area locations. Behavior-bearing: they are part of the Device
+/// Profile snapshot digest, so changing one requires a new profile revision.
+pub(crate) const MARKER_PATH: &str = "ROMManager/target.json";
+pub(crate) const MANIFEST_PATH: &str = "ROMManager/manifest.json";
+
 mod domain;
 mod transport;
 mod workflow;
 
 pub use domain::{
     Action, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence, ManagementOrigin,
-    PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
+    PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
 pub use transport::{
     CancellationToken, FakeFault, FakeTransport, FilesystemTransport, Inventory, InventoryArtifact,

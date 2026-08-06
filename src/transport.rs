@@ -11,10 +11,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ManagedArtifactManifest, RelativePath, TargetMarker, sha256};
-
-const MARKER_PATH: &str = "ROMManager/target.json";
-const MANIFEST_PATH: &str = "ROMManager/manifest.json";
+use crate::{
+    MANIFEST_PATH, MARKER_PATH, ManagedArtifactManifest, RelativePath, TargetMarker, sha256,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TransportCapabilities {

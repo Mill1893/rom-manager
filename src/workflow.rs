@@ -137,14 +137,17 @@ impl<T: Transport> SyncCore<T> {
                 });
                 continue;
             }
-            if !effective_paths.insert(expected.path.as_str().to_lowercase()) {
+            if !effective_paths.insert(expected.path.equivalence_key()) {
                 blocked.push(BlockReason::EffectiveCaseCollision {
                     path: expected.path.clone(),
                 });
                 continue;
             }
+            // Folds case *and* normalization, so an existing NFD spelling of a
+            // planned NFC name is caught here rather than becoming a second
+            // file that differs only by spelling.
             if inventory.artifacts.keys().any(|path| {
-                path != &expected.path && path.as_str().eq_ignore_ascii_case(expected.path.as_str())
+                path != &expected.path && path.equivalence_key() == expected.path.equivalence_key()
             }) {
                 blocked.push(BlockReason::EffectiveCaseCollision {
                     path: expected.path.clone(),

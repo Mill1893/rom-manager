@@ -1,8 +1,26 @@
 use std::{collections::BTreeMap, fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick};
 
 use crate::sha256;
+
+/// Longest single segment, in UTF-16 code units.
+const MAX_SEGMENT_UNITS: usize = 255;
+/// Longest whole relative path, in UTF-16 code units. A deliberate application
+/// bound chosen to sit under every supported host and transport limit, so the
+/// namespace is never defined by the weakest target.
+const MAX_PATH_UNITS: usize = 1024;
+
+/// Basenames Windows may resolve to a device rather than a file. Rejected
+/// regardless of extension, and regardless of whether any given Windows build
+/// still honours them — probe evidence showed the behaviour differs between
+/// builds, so the namespace cannot depend on it.
+const RESERVED_BASENAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "com¹", "com²", "com³", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8",
+    "lpt9", "lpt¹", "lpt²", "lpt³", "conin$", "conout$",
+];
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -19,19 +37,65 @@ impl<'de> Deserialize<'de> for RelativePath {
 }
 
 impl RelativePath {
+    /// Accepts an already-canonical relative path. Input is validated, never
+    /// repaired: a separator, reserved name, or trailing dot is a rejection and
+    /// not something to rewrite. Use [`RelativePath::canonicalize`] to bring a
+    /// source-derived name into canonical form first.
     pub fn new(value: impl Into<String>) -> Result<Self, PathError> {
         let value = value.into();
-        let normalized = value.replace('\\', "/");
-        if normalized.is_empty()
-            || normalized.starts_with('/')
-            || normalized.contains(':')
-            || normalized
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-        {
-            return Err(PathError(value));
+        Self::validate(&value)?;
+        Ok(Self(value))
+    }
+
+    /// Normalizes to NFC and then validates. NFC is the only transformation the
+    /// namespace permits; nothing else about the name is altered.
+    pub fn canonicalize(value: impl AsRef<str>) -> Result<Self, PathError> {
+        Self::new(nfc(value.as_ref()))
+    }
+
+    fn validate(value: &str) -> Result<(), PathError> {
+        let reject = || PathError(value.to_owned());
+        if value.is_empty() || utf16_len(value) > MAX_PATH_UNITS {
+            return Err(reject());
         }
-        Ok(Self(normalized))
+        // Rejected rather than translated: silently rewriting a separator would
+        // repair a name the caller could not prove.
+        if value.contains('\\') || value.starts_with('/') || value.ends_with('/') {
+            return Err(reject());
+        }
+        if !is_nfc(value) {
+            return Err(reject());
+        }
+        for segment in value.split('/') {
+            Self::validate_segment(segment).map_err(|_| reject())?;
+        }
+        Ok(())
+    }
+
+    fn validate_segment(segment: &str) -> Result<(), PathError> {
+        let reject = || PathError(segment.to_owned());
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return Err(reject());
+        }
+        if utf16_len(segment) > MAX_SEGMENT_UNITS {
+            return Err(reject());
+        }
+        if segment
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+        {
+            return Err(reject());
+        }
+        // Win32 path parsing trims these, so a name carrying one resolves to a
+        // *different* file than the one written down.
+        if segment.ends_with('.') || segment.ends_with(' ') || segment.starts_with(' ') {
+            return Err(reject());
+        }
+        let stem = segment.split('.').next().unwrap_or(segment);
+        if RESERVED_BASENAMES.contains(&fold(stem).as_str()) {
+            return Err(reject());
+        }
+        Ok(())
     }
 
     pub fn as_str(&self) -> &str {
@@ -50,6 +114,45 @@ impl RelativePath {
             .rsplit_once('/')
             .map(|(parent, _)| Self(parent.to_owned()))
     }
+
+    /// The effective-equivalence key: two paths whose keys are equal may resolve
+    /// to the same object on some supported host.
+    ///
+    /// This folds case *and* normalization, and is a deliberately conservative
+    /// superset of any host's lookup relation — NTFS folds only simple 1:1 BMP
+    /// mappings, so this maps together some names it would keep distinct. Over-
+    /// folding yields a disclosed block; under-folding would be a silent
+    /// overwrite. It is never a substitute for an atomic create-if-absent.
+    pub fn equivalence_key(&self) -> String {
+        self.0.split('/').map(fold).collect::<Vec<_>>().join("/")
+    }
+}
+
+fn utf16_len(value: &str) -> usize {
+    value.chars().map(char::len_utf16).sum()
+}
+
+/// `is_nfc_quick` answers `Maybe` whenever it cannot decide from the leading
+/// combining classes alone — a string in that state is often already canonical,
+/// so treating `Maybe` as "not NFC" would reject valid names.
+fn is_nfc(value: &str) -> bool {
+    match is_nfc_quick(value.chars()) {
+        IsNormalized::Yes => true,
+        IsNormalized::No => false,
+        IsNormalized::Maybe => value.nfc().eq(value.chars()),
+    }
+}
+
+fn nfc(value: &str) -> String {
+    if is_nfc(value) {
+        value.to_owned()
+    } else {
+        value.nfc().collect()
+    }
+}
+
+fn fold(value: &str) -> String {
+    nfc(value).to_lowercase()
 }
 
 impl fmt::Display for RelativePath {
@@ -76,6 +179,21 @@ pub struct DeviceProfile {
     pub revision: u32,
     pub platform: String,
     pub managed_root: RelativePath,
+    pub extensions: Vec<String>,
+}
+
+/// The behavior-bearing fields of a [`DeviceProfile`], in canonical form.
+///
+/// `(id, revision)` identifies exactly one of these. Serializing it with sorted
+/// keys and hashing the result gives the snapshot digest that freezes the
+/// profile's behaviour; any change here requires a new revision.
+#[derive(Serialize)]
+struct ProfileSnapshot<'a> {
+    extensions: &'a [String],
+    managed_root: &'a str,
+    manifest_path: &'a str,
+    marker_path: &'a str,
+    platform: &'a str,
 }
 
 impl DeviceProfile {
@@ -85,14 +203,39 @@ impl DeviceProfile {
             revision: 1,
             platform: "NES".into(),
             managed_root: RelativePath::new("ROMs/nes").expect("built-in path is valid"),
+            extensions: vec![".nes".into()],
         }
     }
 
+    /// Digest over the behavior-bearing fields only. Presentational fields are
+    /// excluded and never force a revision.
+    pub fn snapshot_digest(&self) -> String {
+        let snapshot = ProfileSnapshot {
+            extensions: &self.extensions,
+            managed_root: self.managed_root.as_str(),
+            manifest_path: crate::MANIFEST_PATH,
+            marker_path: crate::MARKER_PATH,
+            platform: &self.platform,
+        };
+        sha256(&serde_json::to_vec(&snapshot).expect("profile snapshot is serializable"))
+    }
+
     pub fn target_path(&self, file_name: &str) -> Result<RelativePath, PathError> {
-        if !file_name.to_ascii_lowercase().ends_with(".nes") || file_name.contains(['/', '\\']) {
+        let canonical = nfc(file_name);
+        // A source name is one segment. Without this, a name carrying a
+        // separator would silently place the artifact in a subdirectory the
+        // profile never described.
+        if canonical.contains(['/', '\\']) {
             return Err(PathError(file_name.into()));
         }
-        RelativePath::new(format!("{}/{}", self.managed_root, file_name))
+        let accepted = self
+            .extensions
+            .iter()
+            .any(|extension| fold(&canonical).ends_with(&fold(extension)));
+        if !accepted {
+            return Err(PathError(file_name.into()));
+        }
+        RelativePath::canonicalize(format!("{}/{}", self.managed_root, canonical))
     }
 }
 
@@ -205,12 +348,35 @@ pub enum BlockReason {
     MarkerConflict,
     ManifestDisagreement,
     StaleInventory,
-    OutsideManagedRoot { path: RelativePath },
-    EffectiveCaseCollision { path: RelativePath },
-    PathConflict { path: RelativePath },
-    ManagedContentChanged { path: RelativePath },
-    InsufficientCapacity { required: u64, available: u64 },
-    UnsupportedCapability { capability: String },
+    OutsideManagedRoot {
+        path: RelativePath,
+    },
+    EffectiveCaseCollision {
+        path: RelativePath,
+    },
+    /// A name that fails namespace validation outright — distinct from two
+    /// valid names colliding.
+    InvalidTargetPath {
+        path: String,
+    },
+    /// A directory occupies a desired file path. Never cleared to make room,
+    /// empty or not.
+    PathOccupiedByDirectory {
+        path: RelativePath,
+    },
+    PathConflict {
+        path: RelativePath,
+    },
+    ManagedContentChanged {
+        path: RelativePath,
+    },
+    InsufficientCapacity {
+        required: u64,
+        available: u64,
+    },
+    UnsupportedCapability {
+        capability: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
