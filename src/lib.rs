@@ -4,6 +4,7 @@ pub(crate) const MARKER_PATH: &str = "ROMManager/target.json";
 pub(crate) const MANIFEST_PATH: &str = "ROMManager/manifest.json";
 
 mod app;
+mod cache;
 mod confined;
 mod domain;
 mod durable;
@@ -17,6 +18,7 @@ pub use app::{
     AppEvent, CancellationState, MediaTargetChoice, OutcomeKind, OutcomeView, Phase, PlanView,
     Progress, RomPackChoice, Snapshot, WizardStep,
 };
+pub use cache::{CacheError, Lease, MaterializationCache};
 pub use confined::ConfinedRoot;
 pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
