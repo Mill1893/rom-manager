@@ -107,3 +107,15 @@ _Avoid_: Generated metadata file, managed gamelist
 **Sync Plan**:
 An immutable preview of the additions, replacements, retentions, adoptions, and removals needed to make the Target Artifacts and Metadata Projections applicable to one Media Target match a selected ROM Pack under its active Device Profile. A Sync Plan applies to exactly one Media Target; unrecognized content and shared frontend state are preserved and shown separately.
 _Avoid_: Transfer queue, sync job
+
+**Plan Approval**:
+The single-use authority to execute one exact Sync Plan, binding that plan's digest, the acknowledged count of permanent managed removals, and the Media Target, Device Profile, Transport Binding, and inventory evidence it was built against. An approval is invalidated by evidence that any of those changed, never by elapsed time, and it is the sole authority for the adoptions its plan names.
+_Avoid_: Confirmation, consent token, permission
+
+**Effective-Equivalence Key**:
+The comparison key under which two target paths may resolve to the same object on some supported host. It folds case, Unicode normalization, and the trailing dots and spaces Win32 path parsing discards, and is deliberately a conservative superset of any one host's lookup rule — it may report a collision the host would not, but must never miss one it would. It informs planning; it never replaces an atomic create-if-absent as proof that a path was free.
+_Avoid_: Normalized path, canonical key, path hash
+
+**Residue**:
+Content left at a named path by an interrupted operation that the application could not verify as its own, and therefore did not delete. Residue is disclosed to the user and carries no management authority: on the next planning pass it is simply content the Managed Artifact Manifest does not name.
+_Avoid_: Orphan, temp file, leftover
