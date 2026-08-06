@@ -202,10 +202,10 @@ fn effective_case_collisions_are_blocked() {
     core.initialize_target(true).unwrap();
     core.refresh().unwrap();
     let plan = core.build_plan().unwrap();
-    assert!(
-        plan.blocked
-            .contains(&BlockReason::EffectiveCaseCollision { path: second.path })
-    );
+    assert!(plan.blocked.contains(&BlockReason::EffectiveCaseCollision {
+        path: second.path,
+        existing: None,
+    }));
 }
 
 #[test]
@@ -224,7 +224,8 @@ fn existing_effective_case_collision_blocks_a_desired_path() {
     core.refresh().unwrap();
     let plan = core.build_plan().unwrap();
     assert!(plan.blocked.contains(&BlockReason::EffectiveCaseCollision {
-        path: expected().path
+        path: expected().path,
+        existing: Some(path("ROMs/nes/tracers.nes")),
     }));
 }
 

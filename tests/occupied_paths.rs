@@ -268,3 +268,49 @@ fn an_unrepresentable_name_contending_with_a_desired_path_blocks() {
         plan.blocked
     );
 }
+
+#[test]
+fn a_profile_revision_bump_discloses_without_stranding_managed_content() {
+    // The manifest was written under revision 1; the active profile is now
+    // revision 2. Per #46 a revision mismatch "is not by itself a safety
+    // failure" and content named by the manifest "remains managed" — discarding
+    // the manifest would reclassify every managed artifact as unknown content
+    // and strand it.
+    let mut manifest = manifest_naming(ROM_BYTES);
+    manifest.profile_revision = 1;
+
+    let mut active = DeviceProfile::generic_nes();
+    active.revision = 2;
+
+    let mut core = SyncCore::new(
+        fake().with_artifact(path(DESIRED), ROM_BYTES.to_vec()),
+        TARGET_ID,
+        active,
+        vec![expected()],
+        1,
+    );
+    core.initialize_target(true).unwrap();
+    core.transport_mut().set_manifest(Some(manifest.clone()));
+    core.replace_local_manifest(Some(manifest));
+    core.refresh().unwrap();
+    let plan = core.build_plan().unwrap();
+
+    assert!(
+        plan.blocked.iter().any(|reason| matches!(
+            reason,
+            BlockReason::ProfileRevisionChanged {
+                recorded: 1,
+                active: 2
+            }
+        )),
+        "the revision change must be disclosed, got {:?}",
+        plan.blocked
+    );
+    // Still recognized as managed and current — not reclassified as unknown.
+    assert_eq!(actions_for(&plan, Action::Retain), 1);
+    assert_eq!(actions_for(&plan, Action::Adopt), 0);
+    assert!(
+        plan.preserved_unknowns.is_empty(),
+        "managed content must not be stranded as unknown by a revision bump"
+    );
+}

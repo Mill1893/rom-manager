@@ -152,6 +152,14 @@ impl<T: Transport> SyncCore<T> {
         if target_manifest != self.local_manifest || !manifest_is_valid {
             blocked.push(BlockReason::ManifestDisagreement);
         }
+        if let Some(target_manifest) = target_manifest.as_ref()
+            && self.profile_revision_differs(target_manifest)
+        {
+            blocked.push(BlockReason::ProfileRevisionChanged {
+                recorded: target_manifest.profile_revision,
+                active: self.profile.revision,
+            });
+        }
 
         let manifest = target_manifest
             .filter(|_| manifest_is_valid)
@@ -171,17 +179,19 @@ impl<T: Transport> SyncCore<T> {
             if !effective_paths.insert(expected.path.equivalence_key()) {
                 blocked.push(BlockReason::EffectiveCaseCollision {
                     path: expected.path.clone(),
+                    existing: None,
                 });
                 continue;
             }
             // Folds case *and* normalization, so an existing NFD spelling of a
             // planned NFC name is caught here rather than becoming a second
             // file that differs only by spelling.
-            if inventory.artifacts.keys().any(|path| {
-                path != &expected.path && path.equivalence_key() == expected.path.equivalence_key()
+            if let Some(existing) = inventory.artifacts.keys().find(|path| {
+                *path != &expected.path && path.equivalence_key() == expected.path.equivalence_key()
             }) {
                 blocked.push(BlockReason::EffectiveCaseCollision {
                     path: expected.path.clone(),
+                    existing: Some(existing.clone()),
                 });
                 continue;
             }
@@ -251,9 +261,9 @@ impl<T: Transport> SyncCore<T> {
         for path in inventory.artifacts.keys() {
             if let Some(previous) = seen_keys.insert(path.equivalence_key(), path.clone()) {
                 blocked.push(BlockReason::EffectiveCaseCollision {
-                    path: previous.clone(),
+                    path: previous,
+                    existing: Some(path.clone()),
                 });
-                blocked.push(BlockReason::EffectiveCaseCollision { path: path.clone() });
             }
         }
 
@@ -670,15 +680,29 @@ impl<T: Transport> SyncCore<T> {
         marker.schema_version == 1 && marker.target_id == self.target_id
     }
 
+    /// Whether the manifest can be trusted to describe what this application
+    /// manages on this target.
+    ///
+    /// Deliberately excludes the Device Profile *revision*. A revision mismatch
+    /// means the managed layout was produced under different rules, which forces
+    /// disclosed re-planning — but the content the manifest names is still
+    /// managed content, and discarding the manifest would reclassify every
+    /// managed artifact as unknown and strand it.
     fn manifest_is_valid(&self, manifest: &ManagedArtifactManifest) -> bool {
         manifest.schema_version == 1
             && manifest.target_id == self.target_id
             && manifest.profile_id == self.profile.id
-            && manifest.profile_revision == self.profile.revision
             && manifest
                 .artifacts
                 .keys()
                 .all(|path| self.path_is_managed(path))
+    }
+
+    /// A manifest written under a different revision of the same profile. Not a
+    /// safety failure by itself, but the layout rules have changed, so it is
+    /// disclosed and re-planned rather than silently reused.
+    fn profile_revision_differs(&self, manifest: &ManagedArtifactManifest) -> bool {
+        manifest.profile_id == self.profile.id && manifest.profile_revision != self.profile.revision
     }
 
     /// A failure during the removal phase. Any failure halts the operation and

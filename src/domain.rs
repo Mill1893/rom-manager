@@ -368,6 +368,10 @@ pub enum BlockReason {
     },
     EffectiveCaseCollision {
         path: RelativePath,
+        /// The entry already on the target whose key this collides with, where
+        /// one is known. `None` when two *desired* paths collide with each
+        /// other and no existing content is involved.
+        existing: Option<RelativePath>,
     },
     /// A name that fails namespace validation outright — distinct from two
     /// valid names colliding.
@@ -378,6 +382,13 @@ pub enum BlockReason {
     /// empty or not.
     PathOccupiedByDirectory {
         path: RelativePath,
+    },
+    /// The managed layout was produced under a different revision of this
+    /// Device Profile. Content named by the manifest stays managed; the change
+    /// is disclosed and re-planned rather than silently reused.
+    ProfileRevisionChanged {
+        recorded: u32,
+        active: u32,
     },
     PathConflict {
         path: RelativePath,
