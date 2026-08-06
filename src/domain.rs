@@ -387,7 +387,12 @@ pub struct SyncPlan {
     pub profile_id: String,
     pub profile_revision: u32,
     pub rom_pack_revision: u64,
+    /// Observation counter, for ordering and diagnostics only.
     pub inventory_generation: u64,
+    /// Digest over everything the plan observed. This — not the counter — is the
+    /// freshness identity, so re-observing an unchanged target does not
+    /// gratuitously invalidate an approval.
+    pub inventory_digest: String,
     pub actions: Vec<PlanAction>,
     pub preserved_unknowns: Vec<RelativePath>,
     pub preserved_duplicates: Vec<RelativePath>,
@@ -422,5 +427,45 @@ impl SyncPlan {
         let digest = unsealed.digest.clone();
         unsealed.digest.clear();
         digest == sha256(&serde_json::to_vec(&unsealed).expect("sync plan is serializable"))
+    }
+}
+
+/// Authority to execute one exact Sync Plan.
+///
+/// Held by value and consumed by the execute call, so it is single-use at the
+/// type level — a retry after any outcome needs a fresh plan and a fresh
+/// approval. It carries no expiry: an approval is invalidated by *evidence of
+/// change*, which is strictly stronger than a clock. An approval an hour old
+/// against a provably unchanged target is not stale; one a second old against a
+/// changed target is.
+///
+/// Because it binds the plan digest, and that digest covers every action's path
+/// and content hash, approving a plan *is* approving exactly the adoptions it
+/// names — adoption needs no separate consent, and execution can never widen it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Approval {
+    pub plan_digest: String,
+    pub removals_acked: usize,
+    pub target_id: String,
+    pub profile_id: String,
+    pub profile_revision: u32,
+    pub binding_locator: String,
+    pub inventory_digest: String,
+}
+
+impl Approval {
+    /// Grants authority for `plan`, acknowledging `removals_acked` permanent
+    /// managed removals. Every other binding is taken from the plan, so an
+    /// approval cannot be assembled for a plan the caller has not seen.
+    pub fn grant(plan: &SyncPlan, removals_acked: usize) -> Self {
+        Self {
+            plan_digest: plan.digest.clone(),
+            removals_acked,
+            target_id: plan.target_id.clone(),
+            profile_id: plan.profile_id.clone(),
+            profile_revision: plan.profile_revision,
+            binding_locator: plan.binding_locator.clone(),
+            inventory_digest: plan.inventory_digest.clone(),
+        }
     }
 }

@@ -1,5 +1,5 @@
 use rom_manager::{
-    Action, BlockReason, CancellationToken, DeviceProfile, ExecutionOutcome, FakeFault,
+    Action, Approval, BlockReason, CancellationToken, DeviceProfile, ExecutionOutcome, FakeFault,
     FakeTransport, FilesystemTransport, ManagedArtifactManifest, RelativePath, SyncCore, SyncError,
     TargetArtifact, Transport,
 };
@@ -92,9 +92,13 @@ fn empty_target_plans_add_then_retain_after_verified_execution() {
     assert_eq!(plan.actions[0].action, Action::Add);
 
     let outcome = core
-        .execute(&plan, 0, &CancellationToken::default())
+        .execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default(),
+        )
         .unwrap();
-    assert_eq!(outcome, ExecutionOutcome::Succeeded);
+    assert_eq!(outcome, ExecutionOutcome::Completed);
     assert_eq!(
         core.transport_mut().read(&expected().path).unwrap(),
         ROM_BYTES
@@ -121,9 +125,13 @@ fn equal_unrecognized_content_requires_explicit_adoption() {
     let plan = core.build_plan().unwrap();
     assert_eq!(plan.actions[0].action, Action::Adopt);
     assert_eq!(
-        core.execute(&plan, 0, &CancellationToken::default())
-            .unwrap(),
-        ExecutionOutcome::Succeeded
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        )
+        .unwrap(),
+        ExecutionOutcome::Completed
     );
 }
 
@@ -148,7 +156,11 @@ fn mismatching_canonical_content_blocks_without_overwrite() {
         }]
     );
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default()),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::Blocked)
     ));
 }
@@ -234,9 +246,13 @@ fn unknown_noncanonical_content_is_preserved_and_disclosed() {
     assert_eq!(plan.preserved_unknowns, vec![unknown.clone()]);
 
     assert_eq!(
-        core.execute(&plan, 0, &CancellationToken::default())
-            .unwrap(),
-        ExecutionOutcome::Succeeded
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        )
+        .unwrap(),
+        ExecutionOutcome::Completed
     );
     assert_eq!(
         core.transport_mut().read(&unknown).unwrap(),
@@ -308,9 +324,13 @@ fn read_back_mismatch_never_authorizes_removal() {
         .set_fault(Some(FakeFault::CorruptReadBack(expected().path)));
 
     let outcome = core
-        .execute(&plan, 1, &CancellationToken::default())
+        .execute(
+            &plan,
+            Approval::grant(&plan, 1),
+            &CancellationToken::default(),
+        )
         .unwrap();
-    assert!(matches!(outcome, ExecutionOutcome::Failed { .. }));
+    assert!(matches!(outcome, ExecutionOutcome::Incomplete { .. }));
     assert_eq!(core.transport_mut().read(&old_path).unwrap(), old_bytes);
 }
 
@@ -345,13 +365,21 @@ fn managed_removal_is_permanent_only_after_explicit_count_acknowledgement() {
     let plan = core.build_plan().unwrap();
 
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default()),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::RemovalAcknowledgement)
     ));
     assert_eq!(
-        core.execute(&plan, 1, &CancellationToken::default())
-            .unwrap(),
-        ExecutionOutcome::Succeeded
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 1),
+            &CancellationToken::default()
+        )
+        .unwrap(),
+        ExecutionOutcome::Completed
     );
     assert!(core.transport_mut().read(&old_path).is_err());
 }
@@ -393,7 +421,9 @@ fn cancellation_during_leaf_deletion_cannot_report_success() {
         cancellation_request.cancel();
     });
 
-    let outcome = core.execute(&plan, 1, &cancellation).unwrap();
+    let outcome = core
+        .execute(&plan, Approval::grant(&plan, 1), &cancellation)
+        .unwrap();
     request.join().unwrap();
     assert_eq!(outcome, ExecutionOutcome::Cancelled);
 }
@@ -407,8 +437,12 @@ fn disconnect_during_add_is_indeterminate_and_never_success() {
         .set_fault(Some(FakeFault::DisconnectOnWrite));
 
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default())
-            .unwrap(),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        )
+        .unwrap(),
         ExecutionOutcome::Indeterminate { .. }
     ));
     assert!(matches!(core.build_plan(), Err(SyncError::RefreshRequired)));
@@ -423,8 +457,12 @@ fn lost_manifest_read_back_is_indeterminate() {
         .set_fault(Some(FakeFault::DisconnectAfterManifestWrite));
 
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default())
-            .unwrap(),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        )
+        .unwrap(),
         ExecutionOutcome::Indeterminate { .. }
     ));
 }
@@ -439,7 +477,11 @@ fn approval_cannot_execute_a_tampered_plan() {
     plan.digest = rom_manager::sha256(&serde_json::to_vec(&plan).unwrap());
 
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default()),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::PlanChanged)
     ));
 }
@@ -477,7 +519,9 @@ fn cancellation_after_a_write_starts_no_removals_and_requires_refresh() {
         .set_fault(Some(FakeFault::CancelAfterWrite));
 
     let cancellation = CancellationToken::default();
-    let outcome = core.execute(&plan, 1, &cancellation).unwrap();
+    let outcome = core
+        .execute(&plan, Approval::grant(&plan, 1), &cancellation)
+        .unwrap();
     assert_eq!(outcome, ExecutionOutcome::Cancelled);
     core.transport_mut().set_fault(None);
     assert_eq!(core.transport_mut().read(&old_path).unwrap(), old_bytes);
@@ -492,7 +536,11 @@ fn post_plan_target_mutation_invalidates_approval() {
     core.transport_mut()
         .mutate(path("unrecognized.txt"), b"mutation".to_vec());
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default()),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::PlanChanged)
     ));
 }
@@ -504,7 +552,11 @@ fn locator_change_preserves_target_identity_but_invalidates_existing_plan() {
     let old_plan = core.build_plan().unwrap();
     core.transport_mut().set_locator("wpd://odin/new-session");
     assert!(matches!(
-        core.execute(&old_plan, 0, &CancellationToken::default()),
+        core.execute(
+            &old_plan,
+            Approval::grant(&old_plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::PlanChanged)
     ));
     core.refresh().unwrap();
@@ -571,9 +623,13 @@ fn filesystem_transport_executes_the_same_verified_contract() {
     let plan = core.build_plan().unwrap();
     assert!(!plan.atomic_publication);
     assert_eq!(
-        core.execute(&plan, 0, &CancellationToken::default())
-            .unwrap(),
-        ExecutionOutcome::Succeeded
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        )
+        .unwrap(),
+        ExecutionOutcome::Completed
     );
     let fixture = std::fs::read(directory.path().join("ROMs/nes/Tracers.nes")).unwrap();
     assert_eq!(fixture, ROM_BYTES);
@@ -600,7 +656,11 @@ fn filesystem_target_mutation_after_planning_invalidates_approval() {
     .unwrap();
 
     assert!(matches!(
-        core.execute(&plan, 0, &CancellationToken::default()),
+        core.execute(
+            &plan,
+            Approval::grant(&plan, 0),
+            &CancellationToken::default()
+        ),
         Err(SyncError::PlanChanged)
     ));
 }

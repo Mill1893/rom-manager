@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Action, BlockReason, CancellationToken, DeviceProfile, ManagedArtifactManifest,
+    Action, Approval, BlockReason, CancellationToken, DeviceProfile, ManagedArtifactManifest,
     ManagedEvidence, ManagementOrigin, PlanAction, SyncPlan, TargetArtifact, TargetMarker,
     Transport, TransportError, sha256,
 };
@@ -10,9 +10,15 @@ const CAPACITY_MARGIN: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutionOutcome {
-    Succeeded,
+    /// Every planned action performed and verified.
+    Completed,
+    /// Stopped by the user at a point where target state is established.
     Cancelled,
-    Failed { reason: String },
+    /// An action failed, and what reached the target *is* established.
+    Incomplete { reason: String },
+    /// The application cannot establish what reached the target. Never
+    /// downgraded to `Incomplete` to produce a tidier report; a refresh is
+    /// mandatory before any subsequent claim about target contents.
     Indeterminate { reason: String },
 }
 
@@ -30,6 +36,8 @@ pub enum SyncError {
     PlanChanged,
     #[error("permanent removal acknowledgement does not match the Sync Plan")]
     RemovalAcknowledgement,
+    #[error("the approval does not authorize this Sync Plan against this binding")]
+    ApprovalInvalid,
     #[error("initializing or replacing a Media Target marker requires explicit confirmation")]
     ConfirmationRequired,
 }
@@ -275,6 +283,12 @@ impl<T: Transport> SyncCore<T> {
             profile_revision: self.profile.revision,
             rom_pack_revision: self.rom_pack_revision,
             inventory_generation: inventory.generation,
+            inventory_digest: inventory_digest(
+                &inventory,
+                &self.transport.locator(),
+                &capabilities,
+                &manifest,
+            ),
             actions,
             preserved_unknowns,
             preserved_duplicates,
@@ -287,10 +301,13 @@ impl<T: Transport> SyncCore<T> {
         .seal())
     }
 
+    /// Executes `plan` under `approval`, which is consumed whether execution
+    /// succeeds, fails, or is cancelled. No mutation happens before every
+    /// binding below has been validated.
     pub fn execute(
         &mut self,
         plan: &SyncPlan,
-        acknowledged_removals: usize,
+        approval: Approval,
         cancellation: &CancellationToken,
     ) -> Result<ExecutionOutcome, SyncError> {
         if !plan.has_valid_digest()
@@ -303,7 +320,19 @@ impl<T: Transport> SyncCore<T> {
         if !plan.is_executable() {
             return Err(SyncError::Blocked);
         }
-        if plan.removal_count() != acknowledged_removals {
+        // The approval must name this exact plan and this exact binding. An
+        // approval granted for a different, smaller plan can never authorize a
+        // larger one.
+        if approval.plan_digest != plan.digest
+            || approval.target_id != plan.target_id
+            || approval.profile_id != plan.profile_id
+            || approval.profile_revision != plan.profile_revision
+            || approval.binding_locator != plan.binding_locator
+            || approval.inventory_digest != plan.inventory_digest
+        {
+            return Err(SyncError::ApprovalInvalid);
+        }
+        if plan.removal_count() != approval.removals_acked {
             return Err(SyncError::RemovalAcknowledgement);
         }
         if !self
@@ -361,7 +390,7 @@ impl<T: Transport> SyncCore<T> {
                         }
                         Err(error) => {
                             self.refreshed = None;
-                            return Ok(ExecutionOutcome::Failed {
+                            return Ok(ExecutionOutcome::Incomplete {
                                 reason: error.to_string(),
                             });
                         }
@@ -377,7 +406,7 @@ impl<T: Transport> SyncCore<T> {
                     if sha256(&read_back) != action.sha256 {
                         let _ = self.transport.delete_leaf(&action.path);
                         self.refreshed = None;
-                        return Ok(ExecutionOutcome::Failed {
+                        return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("read-back verification failed for {}", action.path),
                         });
                     }
@@ -390,7 +419,7 @@ impl<T: Transport> SyncCore<T> {
                     };
                     if sha256(&read_back) != action.sha256 {
                         self.refreshed = None;
-                        return Ok(ExecutionOutcome::Failed {
+                        return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("adoption verification failed for {}", action.path),
                         });
                     }
@@ -408,7 +437,7 @@ impl<T: Transport> SyncCore<T> {
                     };
                     if sha256(&read_back) != action.sha256 {
                         self.refreshed = None;
-                        return Ok(ExecutionOutcome::Failed {
+                        return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("retention verification failed for {}", action.path),
                         });
                     }
@@ -451,7 +480,7 @@ impl<T: Transport> SyncCore<T> {
             };
             if sha256(&current_bytes) != action.sha256 {
                 self.refreshed = None;
-                return Ok(ExecutionOutcome::Failed {
+                return Ok(ExecutionOutcome::Incomplete {
                     reason: format!("managed content changed before removal: {}", action.path),
                 });
             }
@@ -499,7 +528,7 @@ impl<T: Transport> SyncCore<T> {
         }
         self.local_manifest = Some(next_manifest);
         self.refreshed = None;
-        Ok(ExecutionOutcome::Succeeded)
+        Ok(ExecutionOutcome::Completed)
     }
 
     fn path_is_managed(&self, path: &crate::RelativePath) -> bool {
@@ -529,11 +558,51 @@ impl<T: Transport> SyncCore<T> {
             TransportError::Disconnected => ExecutionOutcome::Indeterminate {
                 reason: "target disconnected after execution began".into(),
             },
-            error => ExecutionOutcome::Failed {
+            error => ExecutionOutcome::Incomplete {
                 reason: error.to_string(),
             },
         }
     }
+}
+
+/// Digest over everything a planning decision reads.
+///
+/// Anything not covered here must not be a planning input, and anything covered
+/// here invalidates a plan and its approval when it changes. A re-observation of
+/// a genuinely unchanged target reproduces this digest exactly, which is what
+/// lets a refresh leave an existing approval intact.
+fn inventory_digest(
+    inventory: &crate::Inventory,
+    locator: &str,
+    capabilities: &crate::TransportCapabilities,
+    manifest: &ManagedArtifactManifest,
+) -> String {
+    #[derive(serde::Serialize)]
+    struct Observed<'a> {
+        artifacts: BTreeMap<&'a str, (u64, &'a str)>,
+        capabilities: &'a crate::TransportCapabilities,
+        locator: &'a str,
+        manifest: &'a ManagedArtifactManifest,
+    }
+
+    // Raw free bytes are deliberately excluded. On a shared volume they drift
+    // constantly for reasons that have nothing to do with this target, and
+    // binding them would invalidate approvals on unrelated disk activity. What
+    // matters — whether capacity is *reported*, and whether it is *sufficient* —
+    // is already covered: the capability is in `capabilities`, and insufficiency
+    // becomes an `InsufficientCapacity` entry in the plan's `blocked` list,
+    // which the plan digest covers.
+    let observed = Observed {
+        artifacts: inventory
+            .artifacts
+            .iter()
+            .map(|(path, artifact)| (path.as_str(), (artifact.size, artifact.sha256.as_str())))
+            .collect(),
+        capabilities,
+        locator,
+        manifest,
+    };
+    sha256(&serde_json::to_vec(&observed).expect("observed evidence is serializable"))
 }
 
 fn action(expected: &TargetArtifact, action: Action) -> PlanAction {

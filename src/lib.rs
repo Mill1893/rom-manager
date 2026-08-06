@@ -8,8 +8,8 @@ mod transport;
 mod workflow;
 
 pub use domain::{
-    Action, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence, ManagementOrigin,
-    PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
+    Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
+    ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
 pub use transport::{
     CancellationToken, FakeFault, FakeTransport, FilesystemTransport, Inventory, InventoryArtifact,
