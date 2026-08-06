@@ -15,7 +15,7 @@ pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,
     InventoryArtifact, Transport, TransportCapabilities, TransportError,
 };
-pub use workflow::{ExecutionOutcome, SyncCore, SyncError};
+pub use workflow::{ExecutionOutcome, Residue, SyncCore, SyncError};
 
 pub fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};

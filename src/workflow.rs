@@ -15,11 +15,31 @@ pub enum ExecutionOutcome {
     /// Stopped by the user at a point where target state is established.
     Cancelled,
     /// An action failed, and what reached the target *is* established.
-    Incomplete { reason: String },
+    Incomplete {
+        reason: String,
+        residue: Vec<Residue>,
+    },
     /// The application cannot establish what reached the target. Never
     /// downgraded to `Incomplete` to produce a tidier report; a refresh is
     /// mandatory before any subsequent claim about target contents.
-    Indeterminate { reason: String },
+    Indeterminate {
+        reason: String,
+        residue: Vec<Residue>,
+    },
+}
+
+/// Something left at a named path that the application could not verify as its
+/// own, and therefore did not delete.
+///
+/// This is a disclosure to the user, not privileged state. On the next planning
+/// pass the path is simply content the manifest does not name — unknown content,
+/// preserved and classified like any other. The record never grants authority
+/// the failed operation did not establish.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Residue {
+    pub path: crate::RelativePath,
+    /// The action that was in flight when the outcome became uncertain.
+    pub attempted: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -444,12 +464,14 @@ impl<T: Transport> SyncCore<T> {
                             self.refreshed = None;
                             return Ok(ExecutionOutcome::Indeterminate {
                                 reason: "target disconnected during write".into(),
+                                residue: Vec::new(),
                             });
                         }
                         Err(error) => {
                             self.refreshed = None;
                             return Ok(ExecutionOutcome::Incomplete {
                                 reason: error.to_string(),
+                                residue: Vec::new(),
                             });
                         }
                     }
@@ -462,10 +484,21 @@ impl<T: Transport> SyncCore<T> {
                         Err(error) => return Ok(self.failed_after_side_effect(error)),
                     };
                     if sha256(&read_back) != action.sha256 {
-                        let _ = self.transport.delete_leaf(&action.path);
+                        // Deliberately NOT deleted. The bytes at this path are
+                        // not what was written, so the application cannot prove
+                        // it created what is there — it may be another tool's
+                        // file at a colliding name. Deleting on the basis that
+                        // "this operation owned that path" is exactly the
+                        // inference the safety rules exclude everywhere else.
+                        // It is left in place and recorded, becoming ordinary
+                        // unknown content on the next planning pass.
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("read-back verification failed for {}", action.path),
+                            residue: vec![Residue {
+                                path: action.path.clone(),
+                                attempted: "add".into(),
+                            }],
                         });
                     }
                     ManagementOrigin::Placed
@@ -479,6 +512,7 @@ impl<T: Transport> SyncCore<T> {
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("adoption verification failed for {}", action.path),
+                            residue: Vec::new(),
                         });
                     }
                     ManagementOrigin::Adopted
@@ -497,6 +531,7 @@ impl<T: Transport> SyncCore<T> {
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("retention verification failed for {}", action.path),
+                            residue: Vec::new(),
                         });
                     }
                     origin
@@ -533,6 +568,7 @@ impl<T: Transport> SyncCore<T> {
                     self.refreshed = None;
                     return Ok(ExecutionOutcome::Indeterminate {
                         reason: error.to_string(),
+                        residue: Vec::new(),
                     });
                 }
             };
@@ -540,12 +576,14 @@ impl<T: Transport> SyncCore<T> {
                 self.refreshed = None;
                 return Ok(ExecutionOutcome::Incomplete {
                     reason: format!("managed content changed before removal: {}", action.path),
+                    residue: Vec::new(),
                 });
             }
             if let Err(error) = self.transport.delete_leaf(&action.path) {
                 self.refreshed = None;
                 return Ok(ExecutionOutcome::Indeterminate {
                     reason: error.to_string(),
+                    residue: Vec::new(),
                 });
             }
         }
@@ -567,6 +605,7 @@ impl<T: Transport> SyncCore<T> {
             self.refreshed = None;
             return Ok(ExecutionOutcome::Indeterminate {
                 reason: format!("manifest publication status is unknown: {error}"),
+                residue: Vec::new(),
             });
         }
         let published_manifest = match self.transport.manifest() {
@@ -575,6 +614,7 @@ impl<T: Transport> SyncCore<T> {
                 self.refreshed = None;
                 return Ok(ExecutionOutcome::Indeterminate {
                     reason: format!("manifest publication cannot be confirmed: {error}"),
+                    residue: Vec::new(),
                 });
             }
         };
@@ -582,6 +622,7 @@ impl<T: Transport> SyncCore<T> {
             self.refreshed = None;
             return Ok(ExecutionOutcome::Indeterminate {
                 reason: "target manifest read-back disagreed".into(),
+                residue: Vec::new(),
             });
         }
         self.local_manifest = Some(next_manifest);
@@ -615,9 +656,11 @@ impl<T: Transport> SyncCore<T> {
         match error {
             TransportError::Disconnected => ExecutionOutcome::Indeterminate {
                 reason: "target disconnected after execution began".into(),
+                residue: Vec::new(),
             },
             error => ExecutionOutcome::Incomplete {
                 reason: error.to_string(),
+                residue: Vec::new(),
             },
         }
     }
