@@ -11,21 +11,133 @@ const CAPACITY_MARGIN: u64 = 64 * 1024;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutionOutcome {
     /// Every planned action performed and verified.
-    Completed,
+    Completed { report: OperationReport },
     /// Stopped by the user at a point where target state is established.
-    Cancelled,
+    Cancelled { report: OperationReport },
     /// An action failed, and what reached the target *is* established.
     Incomplete {
         reason: String,
-        residue: Vec<Residue>,
+        report: OperationReport,
     },
     /// The application cannot establish what reached the target. Never
     /// downgraded to `Incomplete` to produce a tidier report; a refresh is
     /// mandatory before any subsequent claim about target contents.
     Indeterminate {
         reason: String,
-        residue: Vec<Residue>,
+        report: OperationReport,
     },
+}
+
+impl ExecutionOutcome {
+    pub fn report(&self) -> &OperationReport {
+        match self {
+            Self::Completed { report }
+            | Self::Cancelled { report }
+            | Self::Incomplete { report, .. }
+            | Self::Indeterminate { report, .. } => report,
+        }
+    }
+}
+
+/// What an operation actually did, carried on every terminal outcome.
+///
+/// The separation that matters is between actions **performed and verified**,
+/// actions **not attempted**, and actions whose result is **uncertain**. An
+/// uncertain action is not a failed one: the application cannot say either way,
+/// and collapsing the two would let "we do not know" read as "it did not
+/// happen".
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct OperationReport {
+    pub performed: Vec<PlanAction>,
+    pub not_attempted: Vec<PlanAction>,
+    pub uncertain: Vec<PlanAction>,
+    pub residue: Vec<Residue>,
+}
+
+impl OperationReport {
+    /// The disclosure a subsequent plan must carry, per issue #50 §6. Recovery
+    /// is always re-observe, re-plan, re-approve; this is what the user must be
+    /// shown before approving the replacement.
+    pub fn recovery_disclosure(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !self.uncertain.is_empty() {
+            lines.push(format!(
+                "{} action(s) have an uncertain result and were neither confirmed nor ruled out",
+                self.uncertain.len()
+            ));
+        }
+        let stopped = self
+            .not_attempted
+            .iter()
+            .filter(|action| action.action == Action::Remove)
+            .count();
+        if stopped > 0 {
+            lines.push(format!(
+                "{stopped} permanent removal(s) were not performed; their justification lapsed when the operation stopped"
+            ));
+        }
+        for residue in &self.residue {
+            lines.push(format!(
+                "content at {} could not be verified as ours and was left in place",
+                residue.path
+            ));
+        }
+        lines
+    }
+}
+
+/// Accumulates what an operation has done, so any exit can report it.
+struct Progress<'a> {
+    plan: &'a SyncPlan,
+    performed: Vec<PlanAction>,
+    uncertain: Vec<PlanAction>,
+    residue: Vec<Residue>,
+}
+
+impl<'a> Progress<'a> {
+    fn new(plan: &'a SyncPlan) -> Self {
+        Self {
+            plan,
+            performed: Vec::new(),
+            uncertain: Vec::new(),
+            residue: Vec::new(),
+        }
+    }
+
+    fn performed(&mut self, action: &PlanAction) {
+        self.performed.push(action.clone());
+    }
+
+    fn uncertain(&mut self, action: &PlanAction) {
+        self.uncertain.push(action.clone());
+    }
+
+    fn left_behind(&mut self, residue: Residue) {
+        self.residue.push(residue);
+    }
+
+    /// Anything the plan named that was neither performed nor left uncertain
+    /// was not attempted.
+    fn report(&self) -> OperationReport {
+        let accounted = self
+            .performed
+            .iter()
+            .chain(self.uncertain.iter())
+            .collect::<Vec<_>>();
+        let not_attempted = self
+            .plan
+            .actions
+            .iter()
+            .filter(|action| !accounted.contains(action))
+            .cloned()
+            .collect();
+        OperationReport {
+            performed: self.performed.clone(),
+            not_attempted,
+            uncertain: self.uncertain.clone(),
+            residue: self.residue.clone(),
+        }
+    }
 }
 
 /// Something left at a named path that the application could not verify as its
@@ -493,6 +605,7 @@ impl<T: Transport> SyncCore<T> {
             return Err(SyncError::PlanChanged);
         }
 
+        let mut progress = Progress::new(plan);
         let mut next_entries = BTreeMap::new();
         for action in plan
             .actions
@@ -501,7 +614,9 @@ impl<T: Transport> SyncCore<T> {
         {
             if cancellation.is_cancelled() {
                 self.refreshed = None;
-                return Ok(ExecutionOutcome::Cancelled);
+                return Ok(ExecutionOutcome::Cancelled {
+                    report: progress.report(),
+                });
             }
             let origin = match action.action {
                 Action::Add => {
@@ -516,27 +631,34 @@ impl<T: Transport> SyncCore<T> {
                     {
                         Ok(()) => {}
                         Err(TransportError::Disconnected) => {
+                            // The bytes may or may not have landed, and the
+                            // target is gone before it can be asked.
+                            progress.uncertain(action);
                             self.refreshed = None;
                             return Ok(ExecutionOutcome::Indeterminate {
                                 reason: "target disconnected during write".into(),
-                                residue: Vec::new(),
+                                report: progress.report(),
                             });
                         }
                         Err(error) => {
                             self.refreshed = None;
                             return Ok(ExecutionOutcome::Incomplete {
                                 reason: error.to_string(),
-                                residue: Vec::new(),
+                                report: progress.report(),
                             });
                         }
                     }
                     if cancellation.is_cancelled() {
                         self.refreshed = None;
-                        return Ok(ExecutionOutcome::Cancelled);
+                        return Ok(ExecutionOutcome::Cancelled {
+                            report: progress.report(),
+                        });
                     }
                     let read_back = match self.transport.read(&action.path) {
                         Ok(bytes) => bytes,
-                        Err(error) => return Ok(self.failed_after_side_effect(error)),
+                        Err(error) => {
+                            return Ok(self.failed_after_side_effect(error, progress.report()));
+                        }
                     };
                     if sha256(&read_back) != action.sha256 {
                         // Deliberately NOT deleted. The bytes at this path are
@@ -547,13 +669,14 @@ impl<T: Transport> SyncCore<T> {
                         // inference the safety rules exclude everywhere else.
                         // It is left in place and recorded, becoming ordinary
                         // unknown content on the next planning pass.
+                        progress.left_behind(Residue {
+                            path: action.path.clone(),
+                            attempted: Action::Add,
+                        });
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("read-back verification failed for {}", action.path),
-                            residue: vec![Residue {
-                                path: action.path.clone(),
-                                attempted: Action::Add,
-                            }],
+                            report: progress.report(),
                         });
                     }
                     ManagementOrigin::Placed
@@ -561,13 +684,15 @@ impl<T: Transport> SyncCore<T> {
                 Action::Adopt => {
                     let read_back = match self.transport.read(&action.path) {
                         Ok(bytes) => bytes,
-                        Err(error) => return Ok(self.failed_after_side_effect(error)),
+                        Err(error) => {
+                            return Ok(self.failed_after_side_effect(error, progress.report()));
+                        }
                     };
                     if sha256(&read_back) != action.sha256 {
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("adoption verification failed for {}", action.path),
-                            residue: Vec::new(),
+                            report: progress.report(),
                         });
                     }
                     ManagementOrigin::Adopted
@@ -580,19 +705,22 @@ impl<T: Transport> SyncCore<T> {
                         .ok_or(SyncError::PlanChanged)?;
                     let read_back = match self.transport.read(&action.path) {
                         Ok(bytes) => bytes,
-                        Err(error) => return Ok(self.failed_after_side_effect(error)),
+                        Err(error) => {
+                            return Ok(self.failed_after_side_effect(error, progress.report()));
+                        }
                     };
                     if sha256(&read_back) != action.sha256 {
                         self.refreshed = None;
                         return Ok(ExecutionOutcome::Incomplete {
                             reason: format!("retention verification failed for {}", action.path),
-                            residue: Vec::new(),
+                            report: progress.report(),
                         });
                     }
                     origin
                 }
                 Action::Remove => unreachable!(),
             };
+            progress.performed(action);
             next_entries.insert(
                 action.path.clone(),
                 ManagedEvidence {
@@ -606,7 +734,9 @@ impl<T: Transport> SyncCore<T> {
 
         if cancellation.is_cancelled() {
             self.refreshed = None;
-            return Ok(ExecutionOutcome::Cancelled);
+            return Ok(ExecutionOutcome::Cancelled {
+                report: progress.report(),
+            });
         }
         for action in plan
             .actions
@@ -615,27 +745,32 @@ impl<T: Transport> SyncCore<T> {
         {
             if cancellation.is_cancelled() {
                 self.refreshed = None;
-                return Ok(ExecutionOutcome::Cancelled);
+                return Ok(ExecutionOutcome::Cancelled {
+                    report: progress.report(),
+                });
             }
             let current_bytes = match self.transport.read(&action.path) {
                 Ok(bytes) => bytes,
-                Err(error) => return Ok(self.stopped_before_removal(error)),
+                Err(error) => return Ok(self.stopped_before_removal(error, progress.report())),
             };
             if sha256(&current_bytes) != action.sha256 {
                 self.refreshed = None;
                 return Ok(ExecutionOutcome::Incomplete {
                     reason: format!("managed content changed before removal: {}", action.path),
-                    residue: Vec::new(),
+                    report: progress.report(),
                 });
             }
             if let Err(error) = self.transport.delete_leaf(&action.path) {
-                return Ok(self.stopped_before_removal(error));
+                return Ok(self.stopped_before_removal(error, progress.report()));
             }
+            progress.performed(action);
         }
 
         if cancellation.is_cancelled() {
             self.refreshed = None;
-            return Ok(ExecutionOutcome::Cancelled);
+            return Ok(ExecutionOutcome::Cancelled {
+                report: progress.report(),
+            });
         }
 
         let next_manifest = ManagedArtifactManifest {
@@ -650,7 +785,7 @@ impl<T: Transport> SyncCore<T> {
             self.refreshed = None;
             return Ok(ExecutionOutcome::Indeterminate {
                 reason: format!("manifest publication status is unknown: {error}"),
-                residue: Vec::new(),
+                report: progress.report(),
             });
         }
         let published_manifest = match self.transport.manifest() {
@@ -659,7 +794,7 @@ impl<T: Transport> SyncCore<T> {
                 self.refreshed = None;
                 return Ok(ExecutionOutcome::Indeterminate {
                     reason: format!("manifest publication cannot be confirmed: {error}"),
-                    residue: Vec::new(),
+                    report: progress.report(),
                 });
             }
         };
@@ -667,12 +802,14 @@ impl<T: Transport> SyncCore<T> {
             self.refreshed = None;
             return Ok(ExecutionOutcome::Indeterminate {
                 reason: "target manifest read-back disagreed".into(),
-                residue: Vec::new(),
+                report: progress.report(),
             });
         }
         self.local_manifest = Some(next_manifest);
         self.refreshed = None;
-        Ok(ExecutionOutcome::Completed)
+        Ok(ExecutionOutcome::Completed {
+            report: progress.report(),
+        })
     }
 
     fn path_is_managed(&self, path: &crate::RelativePath) -> bool {
@@ -714,32 +851,40 @@ impl<T: Transport> SyncCore<T> {
     /// no further removals are attempted — their justification was the
     /// verified additions of *this* operation, and it lapses the moment the
     /// operation stops proceeding as planned.
-    fn stopped_before_removal(&mut self, error: TransportError) -> ExecutionOutcome {
+    fn stopped_before_removal(
+        &mut self,
+        error: TransportError,
+        report: OperationReport,
+    ) -> ExecutionOutcome {
         self.refreshed = None;
         match error {
             // Only a disconnect leaves it unestablished whether the deletion
             // landed; a definite error means the target state is known.
             TransportError::Disconnected => ExecutionOutcome::Indeterminate {
                 reason: "target disconnected during removal".into(),
-                residue: Vec::new(),
+                report,
             },
             error => ExecutionOutcome::Incomplete {
                 reason: error.to_string(),
-                residue: Vec::new(),
+                report,
             },
         }
     }
 
-    fn failed_after_side_effect(&mut self, error: TransportError) -> ExecutionOutcome {
+    fn failed_after_side_effect(
+        &mut self,
+        error: TransportError,
+        report: OperationReport,
+    ) -> ExecutionOutcome {
         self.refreshed = None;
         match error {
             TransportError::Disconnected => ExecutionOutcome::Indeterminate {
                 reason: "target disconnected after execution began".into(),
-                residue: Vec::new(),
+                report,
             },
             error => ExecutionOutcome::Incomplete {
                 reason: error.to_string(),
-                residue: Vec::new(),
+                report,
             },
         }
     }

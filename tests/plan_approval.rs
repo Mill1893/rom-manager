@@ -40,11 +40,11 @@ fn a_matching_approval_authorizes_execution() {
     let plan = core.build_plan().unwrap();
     let approval = Approval::grant(&plan, plan.removal_count());
 
-    assert_eq!(
+    assert!(matches!(
         core.execute(&plan, approval, &CancellationToken::default())
             .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
 }
 
 #[test]
@@ -120,11 +120,11 @@ fn re_observing_an_unchanged_target_keeps_an_approval_valid() {
         replanned.inventory_digest, plan.inventory_digest,
         "an unchanged target must reproduce its digest"
     );
-    assert_eq!(
+    assert!(matches!(
         core.execute(&plan, approval, &CancellationToken::default())
             .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
 }
 
 #[test]

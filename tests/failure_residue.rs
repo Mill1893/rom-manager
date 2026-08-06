@@ -52,7 +52,7 @@ fn unverifiable_content_is_left_in_place_and_recorded() {
         .unwrap();
 
     let residue = match &outcome {
-        ExecutionOutcome::Incomplete { residue, .. } => residue,
+        ExecutionOutcome::Incomplete { report, .. } => &report.residue,
         other => panic!("expected Incomplete with recorded residue, got {other:?}"),
     };
     assert!(
@@ -138,11 +138,11 @@ fn a_successful_operation_reports_no_residue() {
     let plan = core.build_plan().unwrap();
     let approval = Approval::grant(&plan, plan.removal_count());
 
-    assert_eq!(
+    assert!(matches!(
         core.execute(&plan, approval, &CancellationToken::default())
             .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
 }
 
 #[test]
@@ -155,8 +155,86 @@ fn cancellation_before_any_write_reports_no_residue() {
     let cancellation = CancellationToken::default();
     cancellation.cancel();
 
-    assert_eq!(
+    assert!(matches!(
         core.execute(&plan, approval, &cancellation).unwrap(),
-        ExecutionOutcome::Cancelled
+        ExecutionOutcome::Cancelled { .. }
+    ));
+}
+
+#[test]
+fn a_completed_operation_reports_every_action_as_performed() {
+    let mut core = core();
+    core.refresh().unwrap();
+    let plan = core.build_plan().unwrap();
+    let approval = Approval::grant(&plan, plan.removal_count());
+
+    let outcome = core
+        .execute(&plan, approval, &CancellationToken::default())
+        .unwrap();
+    let report = outcome.report();
+
+    assert_eq!(report.performed.len(), plan.actions.len());
+    assert!(report.not_attempted.is_empty());
+    assert!(report.uncertain.is_empty());
+    assert!(report.residue.is_empty());
+    assert!(report.recovery_disclosure().is_empty());
+}
+
+#[test]
+fn a_disconnect_marks_the_action_uncertain_not_failed() {
+    // "We cannot say either way" is distinct from "it did not happen".
+    // Collapsing them would let uncertainty read as a clean no-op.
+    let mut core = core();
+    core.refresh().unwrap();
+    let plan = core.build_plan().unwrap();
+    let approval = Approval::grant(&plan, plan.removal_count());
+
+    core.transport_mut()
+        .set_fault(Some(FakeFault::DisconnectOnWrite));
+
+    let outcome = core
+        .execute(&plan, approval, &CancellationToken::default())
+        .unwrap();
+    let report = outcome.report();
+
+    assert!(matches!(outcome, ExecutionOutcome::Indeterminate { .. }));
+    assert_eq!(
+        report.uncertain.len(),
+        1,
+        "the in-flight write is uncertain"
+    );
+    assert!(
+        report.performed.is_empty(),
+        "an uncertain action was never performed"
+    );
+    assert!(
+        report
+            .recovery_disclosure()
+            .iter()
+            .any(|line| line.contains("uncertain")),
+        "recovery must disclose the uncertainty, got {:?}",
+        report.recovery_disclosure()
+    );
+}
+
+#[test]
+fn a_cancelled_operation_reports_what_it_did_not_attempt() {
+    let mut core = core();
+    core.refresh().unwrap();
+    let plan = core.build_plan().unwrap();
+    let approval = Approval::grant(&plan, plan.removal_count());
+
+    let cancellation = CancellationToken::default();
+    cancellation.cancel();
+
+    let outcome = core.execute(&plan, approval, &cancellation).unwrap();
+    let report = outcome.report();
+
+    assert!(matches!(outcome, ExecutionOutcome::Cancelled { .. }));
+    assert!(report.performed.is_empty());
+    assert_eq!(
+        report.not_attempted.len(),
+        plan.actions.len(),
+        "every planned action must be accounted for as not attempted"
     );
 }

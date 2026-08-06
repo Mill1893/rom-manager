@@ -98,7 +98,7 @@ fn empty_target_plans_add_then_retain_after_verified_execution() {
             &CancellationToken::default(),
         )
         .unwrap();
-    assert_eq!(outcome, ExecutionOutcome::Completed);
+    assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
     assert_eq!(
         core.transport_mut().read(&expected().path).unwrap(),
         ROM_BYTES
@@ -124,15 +124,15 @@ fn equal_unrecognized_content_requires_explicit_adoption() {
     core.refresh().unwrap();
     let plan = core.build_plan().unwrap();
     assert_eq!(plan.actions[0].action, Action::Adopt);
-    assert_eq!(
+    assert!(matches!(
         core.execute(
             &plan,
             Approval::grant(&plan, 0),
             &CancellationToken::default()
         )
         .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
 }
 
 #[test]
@@ -246,15 +246,15 @@ fn unknown_noncanonical_content_is_preserved_and_disclosed() {
     let plan = core.build_plan().unwrap();
     assert_eq!(plan.preserved_unknowns, vec![unknown.clone()]);
 
-    assert_eq!(
+    assert!(matches!(
         core.execute(
             &plan,
             Approval::grant(&plan, 0),
             &CancellationToken::default()
         )
         .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
     assert_eq!(
         core.transport_mut().read(&unknown).unwrap(),
         b"personal bytes"
@@ -373,15 +373,15 @@ fn managed_removal_is_permanent_only_after_explicit_count_acknowledgement() {
         ),
         Err(SyncError::RemovalAcknowledgement)
     ));
-    assert_eq!(
+    assert!(matches!(
         core.execute(
             &plan,
             Approval::grant(&plan, 1),
             &CancellationToken::default()
         )
         .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
     assert!(core.transport_mut().read(&old_path).is_err());
 }
 
@@ -426,7 +426,7 @@ fn cancellation_during_leaf_deletion_cannot_report_success() {
         .execute(&plan, Approval::grant(&plan, 1), &cancellation)
         .unwrap();
     request.join().unwrap();
-    assert_eq!(outcome, ExecutionOutcome::Cancelled);
+    assert!(matches!(outcome, ExecutionOutcome::Cancelled { .. }));
 }
 
 #[test]
@@ -523,7 +523,7 @@ fn cancellation_after_a_write_starts_no_removals_and_requires_refresh() {
     let outcome = core
         .execute(&plan, Approval::grant(&plan, 1), &cancellation)
         .unwrap();
-    assert_eq!(outcome, ExecutionOutcome::Cancelled);
+    assert!(matches!(outcome, ExecutionOutcome::Cancelled { .. }));
     core.transport_mut().set_fault(None);
     assert_eq!(core.transport_mut().read(&old_path).unwrap(), old_bytes);
     assert!(matches!(core.build_plan(), Err(SyncError::RefreshRequired)));
@@ -623,15 +623,15 @@ fn filesystem_transport_executes_the_same_verified_contract() {
     core.refresh().unwrap();
     let plan = core.build_plan().unwrap();
     assert!(!plan.atomic_publication);
-    assert_eq!(
+    assert!(matches!(
         core.execute(
             &plan,
             Approval::grant(&plan, 0),
             &CancellationToken::default()
         )
         .unwrap(),
-        ExecutionOutcome::Completed
-    );
+        ExecutionOutcome::Completed { .. }
+    ));
     let fixture = std::fs::read(directory.path().join("ROMs/nes/Tracers.nes")).unwrap();
     assert_eq!(fixture, ROM_BYTES);
 }
