@@ -1,0 +1,352 @@
+/* THROWAWAY PROTOTYPE - theme overrides for one settled interaction model. */
+
+:root {
+  --status-good-bg: color-mix(in srgb, var(--good) 12%, transparent);
+  --status-warn-bg: color-mix(in srgb, var(--warn) 13%, transparent);
+  --status-bad-bg: color-mix(in srgb, var(--bad) 11%, transparent);
+}
+
+html[data-visual="A"] {
+  --bg: #f1eadb;
+  --bg2: #f9f4e8;
+  --bg3: #e9dfcb;
+  --bg4: #ded0b6;
+  --line: #cfc0a5;
+  --line2: #ad9b7a;
+  --fg: #27241e;
+  --dim: #675f52;
+  --faint: #827664;
+  --accent: #b7471d;
+  --accent2: #d8892b;
+  --good: #276749;
+  --warn: #9a5b00;
+  --bad: #a52d2d;
+  --radius: 5px;
+  --shadow: 0 18px 44px rgba(58, 43, 22, .28);
+}
+
+html[data-visual="A"] body {
+  background:
+    linear-gradient(rgba(91, 65, 31, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 65, 31, .025) 1px, transparent 1px),
+    var(--bg);
+  background-size: 22px 22px;
+  font-family: "Segoe UI", Candara, sans-serif;
+}
+
+html[data-visual="A"] h1,
+html[data-visual="A"] h2,
+html[data-visual="A"] .va-brand h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -.025em;
+}
+
+html[data-visual="A"] button,
+html[data-visual="A"] input[type="text"],
+html[data-visual="A"] select {
+  border-radius: 3px;
+}
+
+html[data-visual="A"] button:hover { background: #d5c5a8; }
+html[data-visual="A"] button.primary {
+  color: #fff9ed;
+  background: var(--accent);
+  border-color: #893315;
+  box-shadow: 3px 3px 0 #8f3516;
+}
+html[data-visual="A"] button.primary:hover { background: #9f3b18; }
+html[data-visual="A"] .va-side,
+html[data-visual="A"] .va-insp,
+html[data-visual="A"] .va-modal { background: var(--bg2); }
+html[data-visual="A"] .va-brand .logo {
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 5px, var(--accent2) 5px 8px);
+  box-shadow: 3px 3px 0 #27241e;
+}
+html[data-visual="A"] .va-nav .nav-h {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+  border-bottom: 1px solid var(--line);
+}
+html[data-visual="A"] .va-nav .nav-i.on {
+  background: #e5d7bd;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+html[data-visual="A"] .art {
+  border-radius: 2px;
+  border: 5px solid #f8f1e2;
+  outline: 1px solid #968467;
+  box-shadow: 4px 5px 0 rgba(75, 56, 31, .23);
+  filter: saturate(.82) contrast(.95);
+}
+html[data-visual="A"] .va-game:hover .art {
+  transform: translate(-1px, -2px) rotate(-.5deg);
+  box-shadow: 7px 9px 0 rgba(75, 56, 31, .2);
+}
+html[data-visual="A"] .va-game.sel .art { outline: 3px solid var(--accent); }
+html[data-visual="A"] .chip,
+html[data-visual="A"] .pill { border-radius: 2px; }
+html[data-visual="A"] .banner.bad {
+  border: 2px solid var(--bad);
+  border-left-width: 8px;
+  background: #f5deda;
+}
+
+html[data-visual="B"] {
+  --bg: #0a0c0c;
+  --bg2: #101313;
+  --bg3: #171b1a;
+  --bg4: #202624;
+  --line: #2d3532;
+  --line2: #46514d;
+  --fg: #e5ece8;
+  --dim: #96a39d;
+  --faint: #6f7b76;
+  --accent: #7dffb2;
+  --accent2: #d2ff49;
+  --good: #7dffb2;
+  --warn: #f6d760;
+  --bad: #ff6f69;
+  --radius: 0px;
+  --shadow: 0 0 0 1px #7dffb2, 14px 14px 0 rgba(0, 0, 0, .7);
+}
+
+html[data-visual="B"] body {
+  background: var(--bg);
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+html[data-visual="B"] button,
+html[data-visual="B"] input[type="text"],
+html[data-visual="B"] select {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: .035em;
+}
+html[data-visual="B"] button:hover { background: #27302d; }
+html[data-visual="B"] button.primary {
+  color: #07130c;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+html[data-visual="B"] button.primary:hover { background: #b1ffd1; }
+html[data-visual="B"] h1,
+html[data-visual="B"] h2,
+html[data-visual="B"] h3 { text-transform: uppercase; letter-spacing: .055em; }
+html[data-visual="B"] .va { grid-template-columns: 205px 1fr 290px; }
+html[data-visual="B"] .va-side,
+html[data-visual="B"] .va-insp { background: #0d1010; }
+html[data-visual="B"] .va-side { padding: 10px 7px; }
+html[data-visual="B"] .va-main { padding: 12px 16px 90px; }
+html[data-visual="B"] .va-insp { padding: 12px; }
+html[data-visual="B"] .va-nav { margin-bottom: 10px; }
+html[data-visual="B"] .va-nav .nav-h { color: var(--accent); }
+html[data-visual="B"] .va-nav .nav-i { border-radius: 0; padding: 4px 7px; font-size: 11px; }
+html[data-visual="B"] .va-nav .nav-i.on {
+  background: #19241f;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+html[data-visual="B"] .va-brand .logo {
+  border-radius: 0;
+  background: var(--accent);
+  box-shadow: inset 8px 0 #0a0c0c, inset -8px 0 #0a0c0c;
+}
+html[data-visual="B"] .va-grid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 11px 9px; }
+html[data-visual="B"] .art {
+  border-radius: 0;
+  filter: grayscale(.75) contrast(1.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 3px 3px 0 #000;
+}
+html[data-visual="B"] .art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.13) 3px 4px);
+}
+html[data-visual="B"] .va-game:hover .art { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--accent); }
+html[data-visual="B"] .va-game.sel .art { outline: 2px solid var(--accent); outline-offset: 0; }
+html[data-visual="B"] .chip,
+html[data-visual="B"] .pill,
+html[data-visual="B"] .seg { border-radius: 0; }
+html[data-visual="B"] .chip::before { content: "["; }
+html[data-visual="B"] .chip::after { content: "]"; }
+html[data-visual="B"] .banner.bad {
+  border: 1px solid var(--bad);
+  background: repeating-linear-gradient(-45deg, rgba(255,111,105,.12) 0 8px, transparent 8px 16px);
+  box-shadow: inset 5px 0 var(--bad);
+}
+
+html[data-visual="C"] {
+  --bg: #10101a;
+  --bg2: #181827;
+  --bg3: #232339;
+  --bg4: #30304b;
+  --line: #33334d;
+  --line2: #4b4b6c;
+  --fg: #f7f2e9;
+  --dim: #aaa8bd;
+  --faint: #7d7b91;
+  --accent: #ff9c73;
+  --accent2: #68d6ce;
+  --good: #65d5a1;
+  --warn: #ffcb68;
+  --bad: #ff726f;
+  --radius: 18px;
+  --shadow: 0 28px 80px rgba(3, 3, 10, .7);
+}
+
+html[data-visual="C"] body {
+  background:
+    radial-gradient(900px 520px at 75% -10%, rgba(255,156,115,.12), transparent 68%),
+    radial-gradient(700px 480px at 18% 105%, rgba(104,214,206,.09), transparent 70%),
+    var(--bg);
+  font-family: Avenir, "Segoe UI Variable", "Trebuchet MS", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+html[data-visual="C"] button:hover { background: #3b3b59; }
+html[data-visual="C"] button.primary {
+  color: #29120c;
+  background: linear-gradient(135deg, #ffc09f, var(--accent));
+  border-color: #ffad88;
+  box-shadow: 0 8px 24px rgba(255,156,115,.22);
+}
+html[data-visual="C"] button.primary:hover { background: linear-gradient(135deg, #ffd0b7, #ffa27c); }
+html[data-visual="C"] h1,
+html[data-visual="C"] h2 { letter-spacing: -.035em; font-weight: 720; }
+html[data-visual="C"] .va { grid-template-columns: 246px 1fr 336px; }
+html[data-visual="C"] .va-side,
+html[data-visual="C"] .va-insp { background: rgba(20,20,34,.86); backdrop-filter: blur(18px); }
+html[data-visual="C"] .va-side { padding: 22px 12px; }
+html[data-visual="C"] .va-main { padding: 24px 30px 110px; }
+html[data-visual="C"] .va-insp { padding: 23px; }
+html[data-visual="C"] .va-brand .logo {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffd0b7, var(--accent) 45%, #9a3f62);
+  box-shadow: 0 0 28px rgba(255,156,115,.4);
+}
+html[data-visual="C"] .va-nav .nav-h { color: var(--accent2); }
+html[data-visual="C"] .va-nav .nav-i { padding: 8px 10px; }
+html[data-visual="C"] .va-nav .nav-i.on {
+  background: linear-gradient(90deg, rgba(255,156,115,.18), rgba(104,214,206,.05));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+html[data-visual="C"] .va-grid { grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 22px 18px; }
+html[data-visual="C"] .art {
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 14px 30px rgba(0,0,0,.5);
+}
+html[data-visual="C"] .art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255,255,255,.14), transparent 28% 68%, rgba(104,214,206,.1));
+}
+html[data-visual="C"] .va-game:hover .art { transform: translateY(-7px) scale(1.015); box-shadow: 0 22px 42px rgba(0,0,0,.62); }
+html[data-visual="C"] .va-game.sel .art { outline: 3px solid var(--accent); outline-offset: 4px; }
+html[data-visual="C"] .banner.bad {
+  border-color: rgba(255,114,111,.7);
+  background: linear-gradient(135deg, rgba(255,114,111,.17), rgba(255,114,111,.04));
+  box-shadow: inset 4px 0 var(--bad);
+}
+
+/* Status semantics stay redundant across themes: color, text, border and shape. */
+.chip.good { background: var(--status-good-bg); }
+.chip.warn { background: var(--status-warn-bg); }
+.chip.bad { background: var(--status-bad-bg); }
+.dev-dot { outline: 1px solid var(--bg); }
+.dev-dot.stale { border-radius: 2px; transform: rotate(45deg); }
+.banner.bad::before {
+  content: "ACTION REQUIRED";
+  display: block;
+  margin-bottom: 4px;
+  color: var(--bad);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[data-game]:focus-visible {
+  outline: 3px solid var(--accent2);
+  outline-offset: 3px;
+}
+
+/* The prototype controls are intentionally outside every candidate language. */
+#proto-switcher {
+  max-width: calc(100vw - 20px);
+  gap: 7px;
+  overflow-x: auto;
+  background: #050505;
+  border-color: #777;
+  border-radius: 12px;
+  font: 13px/1.2 system-ui, sans-serif;
+}
+#proto-switcher .vlabel { min-width: 164px; }
+#proto-switcher .switcher-rule { width: 1px; height: 24px; background: #555; flex: none; }
+#proto-switcher button.sw-text { width: auto; min-width: 50px; padding: 0 8px; text-transform: none; letter-spacing: 0; }
+#proto-switcher button.on { color: #111; background: #ffd166; border-color: #ffd166; }
+
+/* Simulate application scaling while keeping prototype controls at 100%. */
+body.scale-200 #root {
+  width: 50vw;
+  height: 50vh;
+  zoom: 2;
+}
+body.scale-200 .va { height: 50vh; grid-template-columns: 190px minmax(0, 1fr); }
+body.scale-200 .va-insp { display: none; }
+body.scale-200 .va-main { padding: 12px 14px 72px; }
+body.scale-200 .va-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px 10px; }
+body.scale-200 .va-toolbar { align-items: stretch; }
+body.scale-200 .va-toolbar input[type="text"] { max-width: none; min-width: 100%; }
+body.scale-200 .va-modal { max-width: 46vw; max-height: 44vh; padding: 14px; }
+body.scale-200 .plan-meta { grid-template-columns: 1fr 1fr; }
+
+@media (max-width: 900px) {
+  .va { grid-template-columns: 205px minmax(0, 1fr) !important; }
+  .va-insp { display: none; }
+  .va-main { padding: 16px 17px 100px !important; }
+  .va-grid { grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)) !important; gap: 14px 11px !important; }
+}
+
+@media (max-width: 680px) {
+  body { overflow: auto; }
+  .va {
+    display: grid;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .va-side {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px !important;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .va-brand { min-width: max-content; padding: 4px 8px; }
+  .va-nav { display: flex; margin: 0 !important; min-width: max-content; }
+  .va-nav .nav-h { display: none; }
+  .va-nav .nav-i { width: auto; min-width: max-content; }
+  .va-main { padding: 12px 12px 128px !important; }
+  .va-grid { grid-template-columns: repeat(3, minmax(72px, 1fr)) !important; }
+  .va-toolbar .seg { max-width: 100%; overflow-x: auto; }
+  .va-modal { max-width: 96vw !important; max-height: 82vh !important; }
+  .plan-meta { grid-template-columns: 1fr !important; }
+  #proto-switcher { bottom: 8px; }
+  #proto-switcher .vlabel { min-width: 130px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
+}

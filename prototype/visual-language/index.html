@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  THROWAWAY PROTOTYPE - NOT PRODUCTION CODE.
+
+  Question: What visual language should carry the settled three-pane Library
+  Browser into production, including typography, density, box-art treatment,
+  status and destructive states, responsive behavior, and 100/200% scaling?
+
+  Plan: three visual systems applied to the same interaction model, switchable
+  via ?variant=A|B|C. The floating controls also expose the risky Sync Plan and
+  simulate 200% application scaling.
+
+  Run from prototype/: python3 -m http.server 8000
+  Open: http://localhost:8000/visual-language/
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ROM Manager - visual language prototype</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../workflow/styles.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <div id="switcher-host"></div>
+  <script src="../workflow/data.js"></script>
+  <script src="../workflow/sim.js"></script>
+  <script src="../workflow/variant-a.js"></script>
+  <script src="../workflow/variant-b.js"></script>
+  <script src="../workflow/variant-c.js"></script>
+  <script src="../workflow/app.js"></script>
+  <script src="visual-language.js"></script>
+</body>
+</html>
