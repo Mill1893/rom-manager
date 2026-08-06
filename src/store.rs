@@ -31,12 +31,13 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (2, include_str!("../migrations/0002_library.sql")),
     (3, include_str!("../migrations/0003_library_storage.sql")),
     (4, include_str!("../migrations/0004_source_containers.sql")),
+    (5, include_str!("../migrations/0005_import_folders.sql")),
 ];
 
 /// The schema version this build expects. A store opened at a lower version is
 /// migrated up; one opened at a *higher* version was written by a newer build
 /// and is refused rather than guessed at.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -441,6 +442,99 @@ impl Store {
         )?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Remembers a folder to look in. Remembering is not scanning.
+    pub fn remember_import_folder(
+        &self,
+        path: &str,
+        default_platform: Option<&str>,
+    ) -> Result<i64, StoreError> {
+        self.connection.execute(
+            "INSERT INTO import_folder (path, default_platform) VALUES (?1, ?2)
+             ON CONFLICT(path) DO UPDATE SET default_platform = excluded.default_platform",
+            params![path, default_platform],
+        )?;
+        Ok(self.connection.query_row(
+            "SELECT folder_id FROM import_folder WHERE path = ?1",
+            params![path],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Points a remembered folder at a new location.
+    ///
+    /// Affects future discovery only. Library content came from the bytes, not
+    /// from the folder, so relinking never touches what was already imported.
+    pub fn relink_import_folder(&self, folder_id: i64, new_path: &str) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE import_folder SET path = ?2 WHERE folder_id = ?1",
+            params![folder_id, new_path],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets a folder. Provenance only — Library content is untouched.
+    pub fn forget_import_folder(&self, folder_id: i64) -> Result<(), StoreError> {
+        self.connection.execute(
+            "DELETE FROM import_folder WHERE folder_id = ?1",
+            params![folder_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn import_folders(&self) -> Result<Vec<(i64, String)>, StoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT folder_id, path FROM import_folder ORDER BY folder_id")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn mark_folder_scanned(&self, folder_id: i64, at: i64) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE import_folder SET last_scanned_at = ?2 WHERE folder_id = ?1",
+            params![folder_id, at],
+        )?;
+        Ok(())
+    }
+
+    /// Marks an observation as no longer findable where it was seen.
+    pub fn mark_observation_unavailable(
+        &self,
+        content_digest: &str,
+        external_path: &str,
+        at: i64,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE origin_observation SET unavailable_at = ?3
+              WHERE content_digest = ?1 AND external_path = ?2",
+            params![content_digest, external_path, at],
+        )?;
+        Ok(())
+    }
+
+    /// Observations still findable where they were last seen.
+    pub fn available_observations(&self, content_digest: &str) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT external_path FROM origin_observation
+              WHERE content_digest = ?1 AND unavailable_at IS NULL ORDER BY id",
+        )?;
+        let rows = statement.query_map(params![content_digest], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The content last seen at `external_path`, if anything was.
+    pub fn observation_at(&self, external_path: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT content_digest FROM origin_observation
+                  WHERE external_path = ?1 AND unavailable_at IS NULL LIMIT 1",
+                params![external_path],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     pub fn owned_object_count(&self) -> Result<usize, StoreError> {

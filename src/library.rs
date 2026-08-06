@@ -395,3 +395,154 @@ impl Library {
         Ok(())
     }
 }
+
+/// Why a candidate was passed over during a scan.
+///
+/// Skipped candidates are *reported*, never silently dropped: a user who
+/// expected a file to import needs to know it was seen and why it was not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Skipped {
+    /// An indirection. Never followed — a scan must not be steerable out of the
+    /// folder the user pointed at.
+    Indirection(String),
+    /// A name the application cannot represent.
+    Unsafe(String),
+    /// Present but could not be read.
+    Unreadable(String),
+}
+
+/// What a scan found.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ScanReport {
+    /// Files present that are not yet known content.
+    pub new_candidates: Vec<PathBuf>,
+    /// Paths whose bytes are already owned, unchanged.
+    pub unchanged: Vec<PathBuf>,
+    /// Paths whose bytes differ from what was last seen there. A **new**
+    /// candidate, never an update to the existing object.
+    pub changed: Vec<PathBuf>,
+    /// Observations that are no longer findable where they were recorded.
+    pub now_unavailable: Vec<String>,
+    pub skipped: Vec<Skipped>,
+}
+
+impl Library {
+    /// Scans one Import Folder. Called only when the user asks.
+    ///
+    /// Reconciles provenance **without mutating Library content**: a moved
+    /// input is recognized by content identity, a vanished one is marked
+    /// unavailable, and changed bytes at a known path become a new candidate
+    /// rather than an update. Nothing here imports anything.
+    pub fn scan_folder(
+        &self,
+        store: &Store,
+        folder: &Path,
+        now: i64,
+    ) -> Result<ScanReport, ImportError> {
+        let mut report = ScanReport::default();
+        let mut seen = Vec::new();
+        walk(folder, &mut report, &mut seen)?;
+
+        for path in seen {
+            let display = path.to_string_lossy().into_owned();
+            let Ok(bytes) = fs::read(&path) else {
+                report.skipped.push(Skipped::Unreadable(display));
+                continue;
+            };
+            let digest = sha256(&bytes);
+
+            match store.observation_at(&display)? {
+                // Same bytes, same place: nothing to reconcile.
+                Some(known) if known == digest => report.unchanged.push(path),
+                // Different bytes at a known path. The existing object is
+                // immutable, so this is a new candidate — never an update.
+                Some(known) => {
+                    store.mark_observation_unavailable(&known, &display, now)?;
+                    report.changed.push(path);
+                }
+                None => {
+                    if store.source_object(&digest)?.is_some() {
+                        // Already-owned content seen somewhere new: a moved
+                        // input, matched by strong identity rather than path.
+                        store.record_origin_observation(
+                            &digest,
+                            &display,
+                            &path
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            now,
+                        )?;
+                        report.unchanged.push(path);
+                    } else {
+                        report.new_candidates.push(path);
+                    }
+                }
+            }
+        }
+
+        // Anything recorded under this folder that the scan did not find is no
+        // longer where it was seen.
+        let prefix = folder.to_string_lossy().into_owned();
+        for digest in store.owned_objects()? {
+            for observed in store.available_observations(&digest)? {
+                if observed.starts_with(&prefix) && !Path::new(&observed).exists() {
+                    store.mark_observation_unavailable(&digest, &observed, now)?;
+                    report.now_unavailable.push(observed);
+                }
+            }
+        }
+
+        report.new_candidates.sort();
+        report.unchanged.sort();
+        report.changed.sort();
+        report.now_unavailable.sort();
+        Ok(report)
+    }
+}
+
+/// Recurses through ordinary directories, never following indirection.
+///
+/// A symlink is reported and stepped over rather than traversed, so a scan
+/// cannot be steered outside the folder the user pointed at.
+fn walk(
+    directory: &Path,
+    report: &mut ScanReport,
+    seen: &mut Vec<PathBuf>,
+) -> Result<(), ImportError> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => {
+            report.skipped.push(Skipped::Unreadable(
+                directory.to_string_lossy().into_owned(),
+            ));
+            return Ok(());
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            report
+                .skipped
+                .push(Skipped::Unreadable(path.to_string_lossy().into_owned()));
+            continue;
+        };
+        if kind.is_symlink() {
+            report
+                .skipped
+                .push(Skipped::Indirection(path.to_string_lossy().into_owned()));
+            continue;
+        }
+        if kind.is_dir() {
+            walk(&path, report, seen)?;
+        } else if path.file_name().and_then(|name| name.to_str()).is_none() {
+            report
+                .skipped
+                .push(Skipped::Unsafe(path.to_string_lossy().into_owned()));
+        } else {
+            seen.push(path);
+        }
+    }
+    Ok(())
+}
