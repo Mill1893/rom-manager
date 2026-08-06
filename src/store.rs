@@ -393,6 +393,56 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Marks an object's bytes as not what was stored.
+    ///
+    /// This is corruption, never an update: the recorded content digest is what
+    /// the object *is*, so bytes that disagree are the thing that is wrong.
+    pub fn quarantine_object(&self, content_digest: &str) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE source_object SET health = 'quarantined' WHERE content_digest = ?1",
+            params![content_digest],
+        )?;
+        Ok(())
+    }
+
+    /// Restores a quarantined object after its bytes were replaced from another
+    /// exact occurrence or a strongly matching reimport.
+    pub fn restore_object(&self, content_digest: &str, verified_at: i64) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE source_object SET health = 'healthy', verified_at = ?2
+              WHERE content_digest = ?1",
+            params![content_digest, verified_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_verification(
+        &self,
+        content_digest: &str,
+        verified_at: i64,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE source_object SET verified_at = ?2 WHERE content_digest = ?1",
+            params![content_digest, verified_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn object_is_healthy(&self, content_digest: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .source_object(content_digest)?
+            .is_some_and(|(_, _, health)| health == "healthy"))
+    }
+
+    /// Every owned object, oldest import first.
+    pub fn owned_objects(&self) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT content_digest FROM source_object ORDER BY imported_at, content_digest",
+        )?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn owned_object_count(&self) -> Result<usize, StoreError> {
         Ok(self
             .connection

@@ -54,6 +54,8 @@ pub enum ImportError {
     UnsafeMember(String),
     #[error("a materialized member did not reproduce its recorded identity")]
     MaterializationMismatch,
+    #[error("the recovery candidate does not reproduce the recorded content identity")]
+    RecoveryMismatch,
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -301,4 +303,95 @@ fn read_zip_members(source: &Path) -> Result<Vec<(String, String, u64)>, ImportE
     }
     members.sort();
     Ok(members)
+}
+
+/// What a verification pass found.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IntegrityReport {
+    pub verified: Vec<String>,
+    /// Objects whose bytes are not what was stored. Quarantined, never
+    /// overwritten.
+    pub quarantined: Vec<String>,
+    /// Objects the store names but whose bytes are gone entirely.
+    pub missing: Vec<String>,
+}
+
+impl IntegrityReport {
+    pub fn is_clean(&self) -> bool {
+        self.quarantined.is_empty() && self.missing.is_empty()
+    }
+}
+
+impl Library {
+    /// Verifies one owned object against the digest it is filed under.
+    ///
+    /// A mismatch is **corruption, never an update**. The recorded digest is
+    /// what the object *is*, so bytes that disagree are the thing that is
+    /// wrong: they are quarantined and the object is marked unhealthy, rather
+    /// than the record being rewritten to match whatever is now on disk.
+    pub fn verify_object(
+        &self,
+        store: &Store,
+        digest: &str,
+        now: i64,
+    ) -> Result<bool, ImportError> {
+        let path = self.object_path(digest);
+        let Ok(bytes) = fs::read(&path) else {
+            store.quarantine_object(digest)?;
+            return Ok(false);
+        };
+        if sha256(&bytes) == digest {
+            store.record_verification(digest, now)?;
+            return Ok(true);
+        }
+
+        // Move the unexpected bytes aside rather than deleting them. They are
+        // evidence, and they may be the user's only copy of something.
+        let quarantine = self.root.join("quarantine");
+        let _ = fs::create_dir_all(&quarantine);
+        let _ = fs::rename(&path, quarantine.join(digest));
+        store.quarantine_object(digest)?;
+        Ok(false)
+    }
+
+    /// A full, user-initiated integrity check across every owned object.
+    pub fn verify_all(&self, store: &Store, now: i64) -> Result<IntegrityReport, ImportError> {
+        let mut report = IntegrityReport::default();
+        for digest in store.owned_objects()? {
+            let present = self.object_path(&digest).exists();
+            if self.verify_object(store, &digest, now)? {
+                report.verified.push(digest);
+            } else if present {
+                report.quarantined.push(digest);
+            } else {
+                report.missing.push(digest);
+            }
+        }
+        Ok(report)
+    }
+
+    /// Recovers a quarantined object from a strongly matching reimport.
+    ///
+    /// The candidate must reproduce the recorded digest exactly. Recovery from
+    /// something merely similar would be indistinguishable from accepting the
+    /// corruption.
+    pub fn recover_object(
+        &self,
+        store: &Store,
+        digest: &str,
+        candidate: &Path,
+        now: i64,
+    ) -> Result<(), ImportError> {
+        let bytes = fs::read(candidate).map_err(|error| ImportError::Source(error.to_string()))?;
+        if sha256(&bytes) != digest {
+            return Err(ImportError::RecoveryMismatch);
+        }
+        let destination = self.object_path(digest);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| ImportError::Storage(error.to_string()))?;
+        }
+        fs::write(&destination, &bytes).map_err(|error| ImportError::Storage(error.to_string()))?;
+        store.restore_object(digest, now)?;
+        Ok(())
+    }
 }
