@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     Action, Approval, BlockReason, CancellationToken, DeviceProfile, ManagedArtifactManifest,
-    ManagedEvidence, ManagementOrigin, PlanAction, SyncPlan, TargetArtifact, TargetMarker,
-    Transport, TransportError, sha256,
+    ManagedEvidence, ManagementOrigin, PlanAction, RelativePath, SyncPlan, TargetArtifact,
+    TargetMarker, Transport, TransportError, sha256,
 };
 
 const CAPACITY_MARGIN: u64 = 64 * 1024;
@@ -163,30 +163,85 @@ impl<T: Transport> SyncCore<T> {
                 continue;
             }
             expected_paths.insert(expected.path.clone());
-            match inventory.artifacts.get(&expected.path) {
-                None => {
+            // Exactly one classification per desired path. Nothing falls
+            // through, and no branch overwrites, relocates, or deletes content
+            // the application did not both place and re-verify.
+            match (
+                inventory.artifacts.get(&expected.path),
+                manifest.artifacts.get(&expected.path),
+            ) {
+                // Row 1 — free.
+                (None, _) => {
                     required_capacity += expected.size();
                     actions.push(action(expected, Action::Add));
                 }
-                Some(actual) if actual.sha256 != expected.sha256() => {
+                // Row 7 — a directory is never cleared to make room, empty or
+                // not. Emptiness is not evidence of unimportance.
+                (Some(actual), _) if actual.is_directory() => {
+                    blocked.push(BlockReason::PathOccupiedByDirectory {
+                        path: expected.path.clone(),
+                    });
+                }
+                // Row 4 — managed content was changed outside the application,
+                // so the recorded evidence no longer describes reality. Blocked
+                // rather than overwritten.
+                (Some(actual), Some(evidence)) if actual.sha256 != evidence.sha256 => {
+                    blocked.push(BlockReason::ManagedContentChanged {
+                        path: expected.path.clone(),
+                    });
+                }
+                // Row 2 — managed and already current.
+                (Some(actual), Some(evidence))
+                    if actual.sha256 == expected.sha256()
+                        && evidence.rom_set_id == expected.rom_set_id
+                        && evidence.size == expected.size() =>
+                {
+                    actions.push(action(expected, Action::Retain));
+                }
+                // Row 3 — managed, content still matches the manifest, but a
+                // different ROM Set is now wanted here. A legitimate
+                // replacement, reachable only because row 4 passed first.
+                (Some(_), Some(_)) => {
+                    required_capacity += expected.size();
+                    actions.push(action(expected, Action::Add));
+                }
+                // Row 5 — unrecognized content that exactly matches what was
+                // planned. Strong evidence of identity, but not management
+                // authority: offered as an adoption the approval authorizes.
+                (Some(actual), None) if actual.sha256 == expected.sha256() => {
+                    actions.push(action(expected, Action::Adopt));
+                }
+                // Row 6 — unknown content. Preserved, never overwritten.
+                (Some(_), None) => {
                     blocked.push(BlockReason::PathConflict {
                         path: expected.path.clone(),
                     });
                 }
-                Some(_) if manifest.artifacts.contains_key(&expected.path) => {
-                    let evidence = &manifest.artifacts[&expected.path];
-                    if evidence.rom_set_id == expected.rom_set_id
-                        && evidence.size == expected.size()
-                        && evidence.sha256 == expected.sha256()
-                    {
-                        actions.push(action(expected, Action::Retain));
-                    } else {
-                        blocked.push(BlockReason::ManifestDisagreement);
-                    }
-                }
-                Some(_) => actions.push(action(expected, Action::Adopt)),
             }
         }
+
+        // Row 9 — the target already holds two entries whose keys collide, so
+        // its namespace is ambiguous and planning refuses to guess which entry
+        // it is looking at. Reachable without malice: an unprivileged process
+        // can flip a directory case-sensitive.
+        let mut seen_keys: BTreeMap<String, RelativePath> = BTreeMap::new();
+        for path in inventory.artifacts.keys() {
+            if let Some(previous) = seen_keys.insert(path.equivalence_key(), path.clone()) {
+                blocked.push(BlockReason::EffectiveCaseCollision {
+                    path: previous.clone(),
+                });
+                blocked.push(BlockReason::EffectiveCaseCollision { path: path.clone() });
+            }
+        }
+
+        // Row 10 — managed content the manifest names but the target no longer
+        // holds. Disclosed, and never converted into a removal elsewhere.
+        let missing_managed = manifest
+            .artifacts
+            .keys()
+            .filter(|path| !inventory.artifacts.contains_key(*path))
+            .cloned()
+            .collect::<Vec<_>>();
 
         for (path, evidence) in &manifest.artifacts {
             if expected_paths.contains(path) {
@@ -217,7 +272,8 @@ impl<T: Transport> SyncCore<T> {
             .artifacts
             .iter()
             .filter(|(path, artifact)| {
-                !expected_paths.contains(*path)
+                !artifact.is_directory()
+                    && !expected_paths.contains(*path)
                     && !managed_paths.contains(*path)
                     && expected_hashes.contains(artifact.sha256.as_str())
             })
@@ -227,7 +283,8 @@ impl<T: Transport> SyncCore<T> {
             .artifacts
             .iter()
             .filter(|(path, artifact)| {
-                !expected_paths.contains(*path)
+                !artifact.is_directory()
+                    && !expected_paths.contains(*path)
                     && !managed_paths.contains(*path)
                     && !expected_hashes.contains(artifact.sha256.as_str())
             })
@@ -292,6 +349,7 @@ impl<T: Transport> SyncCore<T> {
             actions,
             preserved_unknowns,
             preserved_duplicates,
+            missing_managed,
             blocked,
             required_capacity: required_with_margin,
             safety_margin: CAPACITY_MARGIN,

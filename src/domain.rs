@@ -396,6 +396,9 @@ pub struct SyncPlan {
     pub actions: Vec<PlanAction>,
     pub preserved_unknowns: Vec<RelativePath>,
     pub preserved_duplicates: Vec<RelativePath>,
+    /// Managed content the manifest names that the target no longer holds.
+    /// Disclosed only — absence is never licence to remove anything else.
+    pub missing_managed: Vec<RelativePath>,
     pub blocked: Vec<BlockReason>,
     pub required_capacity: u64,
     pub safety_margin: u64,

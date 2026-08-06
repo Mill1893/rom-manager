@@ -12,8 +12,8 @@ pub use domain::{
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
 pub use transport::{
-    CancellationToken, FakeFault, FakeTransport, FilesystemTransport, Inventory, InventoryArtifact,
-    Transport, TransportCapabilities, TransportError,
+    CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,
+    InventoryArtifact, Transport, TransportCapabilities, TransportError,
 };
 pub use workflow::{ExecutionOutcome, SyncCore, SyncError};
 

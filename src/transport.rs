@@ -45,8 +45,43 @@ impl TransportCapabilities {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InventoryArtifact {
+    pub kind: EntryKind,
     pub size: u64,
     pub sha256: String,
+}
+
+/// Whether an observed entry is a file or a directory. A directory occupying a
+/// desired file path is a distinct condition from a file occupying it, and is
+/// never cleared to make room.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryKind {
+    File,
+    Directory,
+}
+
+impl InventoryArtifact {
+    pub fn file(size: u64, sha256: impl Into<String>) -> Self {
+        Self {
+            kind: EntryKind::File,
+            size,
+            sha256: sha256.into(),
+        }
+    }
+
+    /// Directories carry no content identity; they exist in the inventory so
+    /// planning can see that a desired path is occupied by one.
+    pub fn directory() -> Self {
+        Self {
+            kind: EntryKind::Directory,
+            size: 0,
+            sha256: String::new(),
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.kind == EntryKind::Directory
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -126,6 +161,7 @@ pub struct FakeTransport {
     marker: Option<TargetMarker>,
     manifest: Option<ManagedArtifactManifest>,
     artifacts: BTreeMap<RelativePath, Vec<u8>>,
+    directories: std::collections::BTreeSet<RelativePath>,
     capacity: u64,
     generation: u64,
     fault: Option<FakeFault>,
@@ -139,6 +175,7 @@ impl FakeTransport {
             marker: None,
             manifest: None,
             artifacts: BTreeMap::new(),
+            directories: std::collections::BTreeSet::new(),
             capacity,
             generation: 0,
             fault: None,
@@ -154,6 +191,14 @@ impl FakeTransport {
 
     pub fn with_artifact(mut self, path: RelativePath, bytes: Vec<u8>) -> Self {
         self.artifacts.insert(path, bytes);
+        self.generation += 1;
+        self
+    }
+
+    /// Places a directory at `path`, so a desired file path can be observed as
+    /// occupied by one.
+    pub fn with_directory(mut self, path: RelativePath) -> Self {
+        self.directories.insert(path);
         self.generation += 1;
         self
     }
@@ -237,17 +282,15 @@ impl Transport for FakeTransport {
             generation: self.generation,
             free_bytes: self.capacity.saturating_sub(used),
             artifacts: self
-                .artifacts
+                .directories
                 .iter()
-                .map(|(path, bytes)| {
+                .map(|path| (path.clone(), InventoryArtifact::directory()))
+                .chain(self.artifacts.iter().map(|(path, bytes)| {
                     (
                         path.clone(),
-                        InventoryArtifact {
-                            size: bytes.len() as u64,
-                            sha256: sha256(bytes),
-                        },
+                        InventoryArtifact::file(bytes.len() as u64, sha256(bytes)),
                     )
-                })
+                }))
                 .collect(),
         })
     }
@@ -385,6 +428,19 @@ impl FilesystemTransport {
         Ok(())
     }
 
+    /// Path relative to the target root, or `None` for the marker area.
+    fn relative(&self, path: &Path) -> Result<Option<String>, TransportError> {
+        let relative = path
+            .strip_prefix(&self.root)
+            .map_err(|error| TransportError::Io(error.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative == MARKER_PATH || relative == MANIFEST_PATH {
+            return Ok(None);
+        }
+        Ok(Some(relative))
+    }
+
     fn visit_files(
         &self,
         directory: &Path,
@@ -401,6 +457,11 @@ impl FilesystemTransport {
                 )));
             }
             if file_type.is_dir() {
+                if let Some(relative) = self.relative(&path)?
+                    && let Ok(relative) = RelativePath::new(relative)
+                {
+                    artifacts.insert(relative, InventoryArtifact::directory());
+                }
                 self.visit_files(&path, artifacts)?;
             } else {
                 let relative = path
@@ -416,10 +477,7 @@ impl FilesystemTransport {
                 let bytes = fs::read(entry.path())?;
                 artifacts.insert(
                     path,
-                    InventoryArtifact {
-                        size: bytes.len() as u64,
-                        sha256: sha256(&bytes),
-                    },
+                    InventoryArtifact::file(bytes.len() as u64, sha256(&bytes)),
                 );
             }
         }
