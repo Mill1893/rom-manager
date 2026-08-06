@@ -5,6 +5,7 @@ pub(crate) const MANIFEST_PATH: &str = "ROMManager/manifest.json";
 
 mod confined;
 mod domain;
+mod store;
 mod transport;
 mod workflow;
 
@@ -13,6 +14,7 @@ pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
+pub use store::{OperationState, Store, StoreError};
 pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,
     InventoryArtifact, Transport, TransportCapabilities, TransportError,

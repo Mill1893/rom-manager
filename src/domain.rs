@@ -454,6 +454,13 @@ impl SyncPlan {
         self.blocked.is_empty()
     }
 
+    /// Whether the recorded digest still matches the plan's contents. Used by
+    /// durable storage to revalidate a reloaded plan by identity rather than
+    /// trusting the bytes it was handed.
+    pub fn digest_is_valid(&self) -> bool {
+        self.has_valid_digest()
+    }
+
     pub(crate) fn has_valid_digest(&self) -> bool {
         let mut unsealed = self.clone();
         let digest = unsealed.digest.clone();
