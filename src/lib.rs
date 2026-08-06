@@ -11,6 +11,7 @@ mod domain;
 mod durable;
 mod esde;
 mod filesystems;
+pub mod formats;
 mod gamelist;
 mod library;
 mod merge;
@@ -42,6 +43,10 @@ pub use durable::{DurableError, approve, execute_approved};
 pub use esde::{DestinationRole, EsdeProfile, RoleAssignment};
 pub use filesystems::{
     FilesystemSupport, ObservedFilesystem, fits, maximum_file_size, support_for,
+};
+pub use formats::{
+    AcceptedForm, BASELINE, Incompleteness, Representation, Support, UNSUPPORTED, forms_for,
+    may_stand_alone, needs_members, resolve_members,
 };
 pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OWNED_FIELDS};
 pub use library::{
