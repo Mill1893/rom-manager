@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  ============================================================================
+  THROWAWAY PROTOTYPE — NOT PRODUCTION CODE. Do not ship, do not polish.
+  ============================================================================
+  Question (ticket "Prototype the Library, ROM Pack, and sync workflow"):
+    What desktop interaction model makes it easy to index several source
+    folders, browse and group games with box art, create and edit reusable
+    ROM Packs, choose a Media Target, inspect a Sync Plan, transfer with
+    understandable progress, and recover from actionable errors?
+
+  Plan: three radically different variants of the whole workflow on one page,
+  switchable via ?variant=A|B|C and the floating bottom bar (arrow keys too).
+
+    A — Library Browser: three-pane media manager; sync is a modal wizard.
+    B — Guided Flow:     left-rail stages; sync is a linear full-page stepper.
+    C — Pack Home:       packs are the hero; plan/progress live on the pack page.
+
+  Run:  python3 -m http.server 8000   (from this directory)
+        → http://localhost:8000
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ROM Manager — workflow prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="root"></div>
+<div id="switcher-host"></div>
+<script src="data.js"></script>
+<script src="sim.js"></script>
+<script src="variant-a.js"></script>
+<script src="variant-b.js"></script>
+<script src="variant-c.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
