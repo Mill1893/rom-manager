@@ -10,6 +10,7 @@ mod domain;
 mod durable;
 mod esde;
 mod library;
+mod projection;
 mod store;
 mod transport;
 mod workflow;
@@ -30,6 +31,10 @@ pub use esde::{DestinationRole, EsdeProfile, RoleAssignment};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
+};
+pub use projection::{
+    CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
+    disambiguate_titles,
 };
 pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
 pub use transport::{
