@@ -188,6 +188,12 @@ impl FromStr for RelativePath {
 #[error("path must be a normalized relative path: {0}")]
 pub struct PathError(String);
 
+impl PathError {
+    pub fn of(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DeviceProfile {
     pub id: String,

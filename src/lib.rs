@@ -8,6 +8,7 @@ mod cache;
 mod confined;
 mod domain;
 mod durable;
+mod esde;
 mod library;
 mod store;
 mod transport;
@@ -25,6 +26,7 @@ pub use domain::{
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
 pub use durable::{DurableError, approve, execute_approved};
+pub use esde::{DestinationRole, EsdeProfile, RoleAssignment};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
