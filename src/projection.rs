@@ -23,9 +23,6 @@
 
 use std::collections::BTreeMap;
 
-/// A Library fact as it will appear in a gamelist entry.
-pub type Field = (&'static str, String);
-
 /// Effective Library metadata for one Release, before export filtering.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReleaseFacts {
