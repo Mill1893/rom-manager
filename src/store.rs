@@ -322,6 +322,24 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// How many Library identities still need this object.
+    ///
+    /// A shared object stays while any retained identity needs it. This is what
+    /// makes deduplication safe: collapsing two imports into one object must
+    /// never mean that removing one identity takes the other's content with it.
+    pub fn object_reference_count(&self, content_digest: &str) -> Result<usize, StoreError> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM rom_set WHERE content_digest = ?1",
+            params![content_digest],
+            |row| row.get::<_, i64>(0),
+        )? as usize)
+    }
+
+    /// Whether removing `content_digest` would strand a retained identity.
+    pub fn object_is_still_needed(&self, content_digest: &str) -> Result<bool, StoreError> {
+        Ok(self.object_reference_count(content_digest)? > 0)
+    }
+
     pub fn owned_object_count(&self) -> Result<usize, StoreError> {
         Ok(self
             .connection

@@ -232,3 +232,107 @@ fn nothing_is_left_in_staging_after_an_import() {
     let leftovers: Vec<_> = fs::read_dir(root.join("staging")).unwrap().collect();
     assert!(leftovers.is_empty(), "staging must be empty after a commit");
 }
+
+#[test]
+fn a_shared_object_stays_while_any_identity_needs_it() {
+    // Deduplication collapses two imports into one object. That must never mean
+    // removing one identity takes the other's content with it.
+    let fixture = fixture();
+    let first = place(&fixture, "Tracers.nes", ROM);
+    let second = place(&fixture, "Tracers (copy).nes", ROM);
+
+    let imported = fixture
+        .library
+        .import_file(&fixture.store, &first, 100)
+        .unwrap();
+    fixture
+        .library
+        .import_file(&fixture.store, &second, 101)
+        .unwrap();
+
+    assert!(
+        !fixture
+            .store
+            .object_is_still_needed(&imported.content_digest)
+            .unwrap(),
+        "nothing references it yet"
+    );
+
+    // Two Library identities now share the same bytes.
+    for (game, release, rom_set) in [
+        ("game-a", "release-a", "rom-set-a"),
+        ("game-b", "release-b", "rom-set-b"),
+    ] {
+        fixture
+            .store
+            .upsert_rom_set(
+                (game, "NES", "Tracers"),
+                (release, "USA"),
+                (
+                    rom_set,
+                    &imported.content_digest,
+                    "Tracers.nes",
+                    imported.size,
+                ),
+            )
+            .unwrap();
+    }
+
+    assert_eq!(
+        fixture
+            .store
+            .object_reference_count(&imported.content_digest)
+            .unwrap(),
+        2,
+        "both identities are counted"
+    );
+    assert!(
+        fixture
+            .store
+            .object_is_still_needed(&imported.content_digest)
+            .unwrap()
+    );
+}
+
+#[test]
+fn deduplication_never_changes_what_a_rom_pack_selected() {
+    // A pack selects content by digest. Importing the same bytes again from
+    // somewhere else adds provenance and must leave the selection identical.
+    let fixture = fixture();
+    let first = place(&fixture, "Tracers.nes", ROM);
+
+    let imported = fixture
+        .library
+        .import_file(&fixture.store, &first, 100)
+        .unwrap();
+    fixture
+        .store
+        .upsert_rom_set(
+            ("game-a", "NES", "Tracers"),
+            ("release-a", "USA"),
+            (
+                "rom-set-a",
+                &imported.content_digest,
+                "Tracers.nes",
+                imported.size,
+            ),
+        )
+        .unwrap();
+    fixture
+        .store
+        .record_pack_selection("pack-1", 1, &[("rom-set-a", &imported.content_digest)])
+        .unwrap();
+    let before = fixture.store.pack_selection("pack-1", 1).unwrap();
+
+    let second = place(&fixture, "Elsewhere.nes", ROM);
+    fixture
+        .library
+        .import_file(&fixture.store, &second, 200)
+        .unwrap();
+
+    assert_eq!(
+        fixture.store.pack_selection("pack-1", 1).unwrap(),
+        before,
+        "an exact selection must survive a duplicate import untouched"
+    );
+}
