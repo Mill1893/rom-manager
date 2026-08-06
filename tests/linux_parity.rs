@@ -152,3 +152,33 @@ fn a_blocked_filesystem_reports_rather_than_failing_later() {
     assert!(matches!(support, FilesystemSupport::Blocked { .. }));
     assert!(support.reason().is_some());
 }
+
+#[test]
+fn macos_paths_follow_apples_convention() {
+    // The same guarantee as XDG, expressed in the platform's terms.
+    let paths = AppPaths::resolve_macos(env(&[("HOME", "/Users/andy")])).unwrap();
+
+    assert_eq!(
+        paths.data,
+        Path::new("/Users/andy/Library/Application Support/dev.mill1893.rom-manager")
+    );
+    assert_eq!(
+        paths.cache,
+        Path::new("/Users/andy/Library/Caches/dev.mill1893.rom-manager")
+    );
+    assert_eq!(
+        paths.config,
+        Path::new("/Users/andy/Library/Preferences/dev.mill1893.rom-manager")
+    );
+}
+
+#[test]
+fn the_macos_cache_can_never_reach_the_library() {
+    // macOS purges Caches under disk pressure without asking. Putting the
+    // Library there would let the operating system delete the user's content.
+    let paths = AppPaths::resolve_macos(env(&[("HOME", "/Users/andy")])).unwrap();
+
+    assert!(paths.library_root().starts_with(&paths.data));
+    assert!(paths.materialization_cache().starts_with(&paths.cache));
+    assert!(!paths.materialization_cache().starts_with(&paths.data));
+}

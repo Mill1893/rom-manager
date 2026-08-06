@@ -35,8 +35,11 @@ pub struct AppPaths {
     pub config: PathBuf,
 }
 
-/// The directory name used under each XDG root.
+/// The directory name used under each root.
 const QUALIFIER: &str = "rom-manager";
+
+/// The reverse-DNS identifier macOS expects under Application Support.
+const BUNDLE_ID: &str = "dev.mill1893.rom-manager";
 
 impl AppPaths {
     /// Resolves paths from the environment, following the XDG base directory
@@ -62,9 +65,29 @@ impl AppPaths {
         })
     }
 
-    /// Resolves from the real process environment.
+    /// Resolves macOS paths, which follow Apple's layout rather than XDG.
+    ///
+    /// The same guarantee holds, expressed differently: Application Support is
+    /// backed up and survives, Caches is explicitly disposable and macOS will
+    /// purge it under disk pressure without asking. Putting the Library in
+    /// Caches would let the operating system itself delete the user's content.
+    pub fn resolve_macos(env: impl Fn(&str) -> Option<String>) -> Option<Self> {
+        let home = env("HOME").map(PathBuf::from)?;
+        Some(Self {
+            data: home.join("Library/Application Support").join(BUNDLE_ID),
+            cache: home.join("Library/Caches").join(BUNDLE_ID),
+            config: home.join("Library/Preferences").join(BUNDLE_ID),
+        })
+    }
+
+    /// Resolves from the real process environment, using the host's convention.
     pub fn from_env() -> Option<Self> {
-        Self::resolve(|name| std::env::var(name).ok())
+        let read = |name: &str| std::env::var(name).ok();
+        if cfg!(target_os = "macos") {
+            Self::resolve_macos(read)
+        } else {
+            Self::resolve(read)
+        }
     }
 
     /// App-owned Library storage.
