@@ -360,6 +360,12 @@ impl WpdLikeBackend {
         self
     }
 
+    /// Injects or clears a fault mid-session, so a test can fail one operation
+    /// and then observe the aftermath with the device behaving again.
+    pub fn set_fault(&mut self, fault: Option<WpdFault>) {
+        self.fault = fault;
+    }
+
     fn assign_id(&mut self, path: &RelativePath) -> u64 {
         let id = self.next_object_id;
         self.next_object_id += 1;
