@@ -86,7 +86,10 @@ impl InventoryArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Inventory {
     pub generation: u64,
-    pub free_bytes: u64,
+    /// Free space where the binding reports it, and `None` where it does not.
+    /// An unreported capacity is never estimated or defaulted — it is the
+    /// condition that blocks any plan containing an addition.
+    pub free_bytes: Option<u64>,
     pub artifacts: BTreeMap<RelativePath, InventoryArtifact>,
     /// Names observed on the target that the namespace cannot represent — an
     /// NFD spelling, a trailing dot, a reserved basename. Reported verbatim so
@@ -294,7 +297,10 @@ impl Transport for FakeTransport {
             .sum::<u64>();
         Ok(Inventory {
             generation: self.generation,
-            free_bytes: self.capacity.saturating_sub(used),
+            free_bytes: self
+                .capabilities
+                .reports_capacity
+                .then(|| self.capacity.saturating_sub(used)),
             unrepresentable: self.unrepresentable.clone(),
             artifacts: self
                 .directories
@@ -548,7 +554,7 @@ impl Transport for FilesystemTransport {
         let mut unrepresentable = Vec::new();
         self.visit_files(&self.root, &mut artifacts, &mut unrepresentable)?;
         unrepresentable.sort();
-        let free_bytes = fs2::available_space(&self.root)?;
+        let free_bytes = Some(fs2::available_space(&self.root)?);
         let fingerprint = artifacts
             .iter()
             .map(|(path, artifact)| format!("{path}\0{}\0{}\n", artifact.size, artifact.sha256))

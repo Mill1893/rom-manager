@@ -156,12 +156,15 @@ fn generic_profile_has_the_frozen_snapshot_identity() {
     assert_eq!(profile.revision, 1);
 
     // `(id, revision)` identifies exactly one snapshot of behavior-bearing
-    // fields. If this digest changes, the behaviour changed and the revision
-    // must be bumped — a drifted digest is a build failure, not a warning.
+    // fields, frozen by a digest checked into fixtures/. If this digest changes,
+    // the behaviour changed and the revision must be bumped — a drifted digest
+    // is a build failure, not a warning.
+    let frozen = include_str!("../fixtures/profiles/generic-folder.rev1.sha256");
     assert_eq!(
         profile.snapshot_digest(),
-        "b59165c8a999456f1aed5a1f386f97b8cb24a92b1c834215d005dc21ddc376b9",
-        "Generic profile behaviour changed without a revision bump"
+        frozen.trim(),
+        "Generic profile behaviour changed without a revision bump; publish the \
+         next revision rather than editing the frozen digest"
     );
 }
 

@@ -158,3 +158,28 @@ fn every_missing_capability_is_reported_at_once() {
     assert!(reported.contains(&"read-back verification".to_string()));
     assert!(reported.contains(&"capacity reporting".to_string()));
 }
+
+#[test]
+fn unreported_capacity_is_never_estimated() {
+    // A binding that cannot report free space has no capacity to compare
+    // against. #47 §4 requires the absence to be an explicit state rather than
+    // a defaulted number, so the plan blocks on the missing capability and
+    // never on a guessed InsufficientCapacity.
+    let mut core = core_planning_an_add(TransportCapabilities {
+        reports_capacity: false,
+        ..full()
+    });
+    let plan = core.build_plan().unwrap();
+
+    assert!(
+        plan.blocked
+            .iter()
+            .all(|reason| !matches!(reason, BlockReason::InsufficientCapacity { .. })),
+        "capacity must not be judged when it is not reported, got {:?}",
+        plan.blocked
+    );
+    assert!(
+        blocked_capabilities(&mut core).contains(&"capacity reporting".to_string()),
+        "the missing capability is what blocks"
+    );
+}

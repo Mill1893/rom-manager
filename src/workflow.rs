@@ -346,10 +346,15 @@ impl<T: Transport> SyncCore<T> {
         } else {
             required_capacity.saturating_add(CAPACITY_MARGIN)
         };
-        if inventory.free_bytes < required_with_margin {
+        // Only meaningful where capacity is actually reported. Where it is
+        // not, the absence itself blocks any plan containing an addition (see
+        // the capability gating below) rather than being guessed at here.
+        if let Some(free_bytes) = inventory.free_bytes
+            && free_bytes < required_with_margin
+        {
             blocked.push(BlockReason::InsufficientCapacity {
                 required: required_with_margin,
-                available: inventory.free_bytes,
+                available: free_bytes,
             });
         }
         // Capability requirements are per action, and are evaluated only when
