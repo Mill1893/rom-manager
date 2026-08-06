@@ -2,3 +2,4 @@
 /node_modules/
 /dist/
 *.log
+ui/node_modules/
