@@ -7,6 +7,7 @@ mod app;
 mod cache;
 mod combined;
 mod confined;
+pub mod descriptors;
 mod domain;
 mod durable;
 mod esde;
@@ -35,6 +36,9 @@ pub use combined::{
     SplitReadiness, SyncStage, run_combined, split_readiness,
 };
 pub use confined::ConfinedRoot;
+pub use descriptors::{
+    DescriptorError, MemberReference, membership_is_complete, parse_cue, parse_gdi, parse_m3u,
+};
 pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,

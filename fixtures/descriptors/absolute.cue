@@ -1,0 +1,2 @@
+FILE "/etc/passwd" BINARY
+  TRACK 01 MODE1/2352

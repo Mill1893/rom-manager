@@ -1,0 +1,2 @@
+FILE track01.bin BINARY
+  TRACK 01 MODE1/2352
