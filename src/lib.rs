@@ -23,7 +23,7 @@ pub use domain::{
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
 };
 pub use durable::{DurableError, approve, execute_approved};
-pub use library::{ImportError, Imported, Library};
+pub use library::{Container, ImportError, Imported, Library};
 pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
 pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,

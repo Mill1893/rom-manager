@@ -30,12 +30,13 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../migrations/0001_initial.sql")),
     (2, include_str!("../migrations/0002_library.sql")),
     (3, include_str!("../migrations/0003_library_storage.sql")),
+    (4, include_str!("../migrations/0004_source_containers.sql")),
 ];
 
 /// The schema version this build expects. A store opened at a lower version is
 /// migrated up; one opened at a *higher* version was written by a newer build
 /// and is refused rather than guessed at.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -338,6 +339,58 @@ impl Store {
     /// Whether removing `content_digest` would strand a retained identity.
     pub fn object_is_still_needed(&self, content_digest: &str) -> Result<bool, StoreError> {
         Ok(self.object_reference_count(content_digest)? > 0)
+    }
+
+    /// Records an archive as a Source Container and what it was read to hold.
+    pub fn record_container(
+        &self,
+        container_digest: &str,
+        format: &str,
+        members: &[(String, String, u64)],
+        read_at: i64,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "INSERT INTO source_container (content_digest, format, member_count, read_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(content_digest) DO UPDATE SET member_count = excluded.member_count,
+                                                       read_at = excluded.read_at",
+            params![container_digest, format, members.len(), read_at],
+        )?;
+        for (member_path, content_digest, size) in members {
+            self.connection.execute(
+                "INSERT INTO container_member
+                     (container_digest, member_path, content_digest, size)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(container_digest, member_path) DO NOTHING",
+                params![container_digest, member_path, content_digest, size],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Members of a container, as `(member_path, content_digest)`.
+    pub fn container_members(
+        &self,
+        container_digest: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT member_path, content_digest FROM container_member
+              WHERE container_digest = ?1 ORDER BY member_path",
+        )?;
+        let rows = statement.query_map(params![container_digest], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every container holding a ROM with this content identity.
+    pub fn containers_holding(&self, content_digest: &str) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT container_digest FROM container_member
+              WHERE content_digest = ?1 ORDER BY container_digest",
+        )?;
+        let rows = statement.query_map(params![content_digest], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn owned_object_count(&self) -> Result<usize, StoreError> {

@@ -48,6 +48,12 @@ pub enum ImportError {
     Storage(String),
     #[error("the staged copy did not match what was read")]
     StagingMismatch,
+    #[error("the archive could not be read: {0}")]
+    Archive(String),
+    #[error("an archive member escapes the archive root: {0}")]
+    UnsafeMember(String),
+    #[error("a materialized member did not reproduce its recorded identity")]
+    MaterializationMismatch,
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -189,4 +195,110 @@ fn digest_of(path: &Path) -> io::Result<String> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(sha256(&bytes))
+}
+
+/// What reading an archive found.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Container {
+    pub content_digest: String,
+    /// `(member_path, content_digest, size)`, sorted by member path.
+    pub members: Vec<(String, String, u64)>,
+}
+
+impl Library {
+    /// Imports an archive as a Source Container.
+    ///
+    /// The archive is stored **byte-for-byte** like any other source object —
+    /// its ROMs are derived materializations reproduced from it on demand, not
+    /// separate Library content. Two archives packaging identical ROMs stay two
+    /// distinct containers, because what was imported is the archive.
+    ///
+    /// A structurally malformed archive is **reported**, never imported as
+    /// opaque complete content: an archive this application cannot read is not
+    /// a ROM it can claim to hold.
+    pub fn import_archive(
+        &self,
+        store: &Store,
+        source: &Path,
+        now: i64,
+    ) -> Result<Container, ImportError> {
+        // Read it before importing anything. A file that does not parse must
+        // not leave a half-claimed container behind.
+        let members = read_zip_members(source)?;
+
+        let imported = self.import_file(store, source, now)?;
+        store.record_container(&imported.content_digest, "zip", &members, now)?;
+
+        Ok(Container {
+            content_digest: imported.content_digest,
+            members,
+        })
+    }
+
+    /// Reproduces one member's bytes from its container.
+    ///
+    /// This is a derived materialization: the bytes are not stored, they are
+    /// produced from content the application owns, and verified against the
+    /// identity recorded when the container was read.
+    pub fn materialize_member(
+        &self,
+        container_digest: &str,
+        member_path: &str,
+        expected_digest: &str,
+    ) -> Result<Vec<u8>, ImportError> {
+        let archive_bytes = self.read_object(container_digest)?;
+        let cursor = io::Cursor::new(archive_bytes);
+        let mut archive = zip::ZipArchive::new(cursor)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+        let mut entry = archive
+            .by_name(member_path)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+
+        // Verified, not trusted: a materialization that does not reproduce the
+        // recorded identity is not the ROM that was imported.
+        if sha256(&bytes) != expected_digest {
+            return Err(ImportError::MaterializationMismatch);
+        }
+        Ok(bytes)
+    }
+}
+
+/// Reads a ZIP's members without extracting anything to disk.
+///
+/// Directory entries are skipped — they are structure, not content. A member
+/// whose name escapes the archive root is refused outright rather than
+/// sanitized, on the same footing as the target-path namespace rules.
+fn read_zip_members(source: &Path) -> Result<Vec<(String, String, u64)>, ImportError> {
+    let file = fs::File::open(source).map_err(|error| ImportError::Source(error.to_string()))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|error| ImportError::Archive(error.to_string()))?;
+
+    let mut members = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+        if entry.is_dir() {
+            continue;
+        }
+        // `enclosed_name` is None when the member name escapes the archive
+        // root. Refused, never repaired.
+        let name = entry
+            .enclosed_name()
+            .ok_or_else(|| ImportError::UnsafeMember(entry.name().to_owned()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+        members.push((name, sha256(&bytes), bytes.len() as u64));
+    }
+    members.sort();
+    Ok(members)
 }
