@@ -7,36 +7,11 @@
 
 use rom_manager::{
     Action, BlockReason, DeviceProfile, FakeTransport, ManagedArtifactManifest, ManagedEvidence,
-    ManagementOrigin, RelativePath, SyncCore, SyncPlan, TargetArtifact,
+    ManagementOrigin, SyncCore, SyncPlan,
 };
 
-const TARGET_ID: &str = "target-fixture-001";
-const ROM_BYTES: &[u8] = include_bytes!("../fixtures/nes/tracers.nes");
-const DESIRED: &str = "ROMs/nes/Tracers.nes";
-
-fn path(value: &str) -> RelativePath {
-    RelativePath::new(value).unwrap()
-}
-
-fn expected() -> TargetArtifact {
-    TargetArtifact::new("rom-set-tracer", path(DESIRED), ROM_BYTES.to_vec())
-}
-
-/// A manifest claiming `DESIRED` holds `bytes`.
-fn manifest_naming(bytes: &[u8]) -> ManagedArtifactManifest {
-    let mut manifest = ManagedArtifactManifest::empty(TARGET_ID, &DeviceProfile::generic_nes());
-    manifest.generation = 1;
-    manifest.artifacts.insert(
-        path(DESIRED),
-        ManagedEvidence {
-            rom_set_id: "rom-set-tracer".into(),
-            size: bytes.len() as u64,
-            sha256: rom_manager::sha256(bytes),
-            origin: ManagementOrigin::Placed,
-        },
-    );
-    manifest
-}
+mod common;
+use common::{DESIRED, ROM_BYTES, TARGET_ID, expected, fake, manifest_naming, path};
 
 fn plan_with(transport: FakeTransport, manifest: Option<ManagedArtifactManifest>) -> SyncPlan {
     let mut core = SyncCore::new(
@@ -53,10 +28,6 @@ fn plan_with(transport: FakeTransport, manifest: Option<ManagedArtifactManifest>
     }
     core.refresh().unwrap();
     core.build_plan().unwrap()
-}
-
-fn fake() -> FakeTransport {
-    FakeTransport::new("wpd://odin/storage", 8 * 1024 * 1024)
 }
 
 fn actions_for(plan: &SyncPlan, wanted: Action) -> usize {

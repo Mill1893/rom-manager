@@ -5,32 +5,15 @@
 //! becoming ordinary unknown content on the next pass.
 
 use rom_manager::{
-    Action, Approval, CancellationToken, DeviceProfile, ExecutionOutcome, FakeFault, FakeTransport,
-    RelativePath, SyncCore, TargetArtifact, Transport,
+    Action, Approval, CancellationToken, ExecutionOutcome, FakeFault, FakeTransport, SyncCore,
+    Transport,
 };
 
-const TARGET_ID: &str = "target-fixture-001";
-const ROM_BYTES: &[u8] = include_bytes!("../fixtures/nes/tracers.nes");
-const DESIRED: &str = "ROMs/nes/Tracers.nes";
-
-fn path(value: &str) -> RelativePath {
-    RelativePath::new(value).unwrap()
-}
-
-fn expected() -> TargetArtifact {
-    TargetArtifact::new("rom-set-tracer", path(DESIRED), ROM_BYTES.to_vec())
-}
+mod common;
+use common::{DESIRED, core_with, fake, path};
 
 fn core() -> SyncCore<FakeTransport> {
-    let mut core = SyncCore::new(
-        FakeTransport::new("wpd://odin/storage", 8 * 1024 * 1024),
-        TARGET_ID,
-        DeviceProfile::generic_nes(),
-        vec![expected()],
-        1,
-    );
-    core.initialize_target(true).unwrap();
-    core
+    core_with(fake())
 }
 
 #[test]

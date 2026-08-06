@@ -2,35 +2,18 @@
 //! by issue #47 to bind the inventory digest rather than the generation).
 
 use rom_manager::{
-    Approval, CancellationToken, DeviceProfile, ExecutionOutcome, FakeTransport, RelativePath,
-    SyncCore, SyncError, TargetArtifact,
+    Approval, CancellationToken, DeviceProfile, ExecutionOutcome, FakeTransport, SyncCore,
+    SyncError,
 };
 
-const TARGET_ID: &str = "target-fixture-001";
-const ROM_BYTES: &[u8] = include_bytes!("../fixtures/nes/tracers.nes");
+mod common;
+use common::{TARGET_ID, core_with, expected, fake};
 
-fn path(value: &str) -> RelativePath {
-    RelativePath::new(value).unwrap()
-}
-
-fn expected() -> TargetArtifact {
-    TargetArtifact::new(
-        "rom-set-tracer",
-        path("ROMs/nes/Tracers.nes"),
-        ROM_BYTES.to_vec(),
-    )
-}
-
+/// Initialized *and refreshed*, so `build_plan` has observed evidence to work
+/// from. Every test here plans immediately.
 fn core() -> SyncCore<FakeTransport> {
-    let mut core = SyncCore::new(
-        FakeTransport::new("wpd://odin/storage", 8 * 1024 * 1024),
-        TARGET_ID,
-        DeviceProfile::generic_nes(),
-        vec![expected()],
-        1,
-    );
-    core.initialize_target(true).unwrap();
-    core.refresh().unwrap();
+    let mut core = core_with(fake());
+    core.refresh().expect("a fresh target refreshes");
     core
 }
 
@@ -134,7 +117,7 @@ fn target_mutation_between_planning_and_execution_invalidates_the_approval() {
     let approval = Approval::grant(&plan, plan.removal_count());
 
     core.transport_mut().mutate(
-        path("ROMs/nes/Interloper.nes"),
+        common::path("ROMs/nes/Interloper.nes"),
         b"placed by another tool".to_vec(),
     );
 

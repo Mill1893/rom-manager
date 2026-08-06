@@ -3,25 +3,10 @@
 //! The rule under test is that a capability gates a plan **only when the plan
 //! contains the action that needs it**, and that `atomic_publish` never blocks.
 
-use rom_manager::{
-    BlockReason, DeviceProfile, FakeTransport, RelativePath, SyncCore, TargetArtifact,
-    TransportCapabilities,
-};
+use rom_manager::{BlockReason, DeviceProfile, FakeTransport, SyncCore, TransportCapabilities};
 
-const TARGET_ID: &str = "target-fixture-001";
-const ROM_BYTES: &[u8] = include_bytes!("../fixtures/nes/tracers.nes");
-
-fn path(value: &str) -> RelativePath {
-    RelativePath::new(value).unwrap()
-}
-
-fn expected() -> TargetArtifact {
-    TargetArtifact::new(
-        "rom-set-tracer",
-        path("ROMs/nes/Tracers.nes"),
-        ROM_BYTES.to_vec(),
-    )
-}
+mod common;
+use common::{CAPACITY, TARGET_ID, expected};
 
 fn full() -> TransportCapabilities {
     TransportCapabilities {
@@ -35,7 +20,7 @@ fn full() -> TransportCapabilities {
 /// A core whose plan contains one `Add`, against a binding with `capabilities`.
 fn core_planning_an_add(capabilities: TransportCapabilities) -> SyncCore<FakeTransport> {
     let mut core = SyncCore::new(
-        FakeTransport::new("wpd://odin/storage", 8 * 1024 * 1024).with_capabilities(capabilities),
+        FakeTransport::new("wpd://odin/storage", CAPACITY).with_capabilities(capabilities),
         TARGET_ID,
         DeviceProfile::generic_nes(),
         vec![expected()],
@@ -49,7 +34,7 @@ fn core_planning_an_add(capabilities: TransportCapabilities) -> SyncCore<FakeTra
 /// A core with nothing desired, so the plan contains no actions at all.
 fn core_planning_nothing(capabilities: TransportCapabilities) -> SyncCore<FakeTransport> {
     let mut core = SyncCore::new(
-        FakeTransport::new("wpd://odin/storage", 8 * 1024 * 1024).with_capabilities(capabilities),
+        FakeTransport::new("wpd://odin/storage", CAPACITY).with_capabilities(capabilities),
         TARGET_ID,
         DeviceProfile::generic_nes(),
         Vec::new(),
