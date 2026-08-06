@@ -7,7 +7,9 @@ mod common;
 
 use std::{fs, path::PathBuf};
 
-use rom_manager::{Library, Skipped, Store};
+#[cfg(unix)]
+use rom_manager::Skipped;
+use rom_manager::{Library, Store};
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -68,6 +70,10 @@ fn a_scan_finds_new_candidates_without_importing_them() {
     );
 }
 
+/// Unix-only: creating a symbolic link on Windows needs elevation or Developer
+/// Mode, which CI runners do not reliably have. The rule is enforced on both
+/// platforms; only this way of *planting* the indirection is Unix-specific.
+#[cfg(unix)]
 #[test]
 fn a_scan_never_follows_an_indirection() {
     // A scan must not be steerable outside the folder the user pointed at.
