@@ -30,6 +30,8 @@ jobs:
           git diff --exit-code -- fixtures/nes/tracers.nes fixtures/nes/tracers.sha256
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
+      # The optional provider feature must hold the same bar, or it rots.
+      - run: cargo clippy --all-targets --features provider-http -- -D warnings
       - run: cargo test --all-targets
       - name: Type-check and test the UI
         working-directory: ui
