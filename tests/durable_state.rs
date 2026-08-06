@@ -28,12 +28,15 @@ fn migrations_apply_and_are_idempotent() {
     let directory = tempfile::tempdir().unwrap();
 
     let store = store_at(directory.path());
-    assert_eq!(store.schema_version().unwrap(), 1);
+    assert_eq!(store.schema_version().unwrap(), rom_manager::SCHEMA_VERSION);
     drop(store);
 
     // Reopening must not reapply a migration that already ran.
     let reopened = store_at(directory.path());
-    assert_eq!(reopened.schema_version().unwrap(), 1);
+    assert_eq!(
+        reopened.schema_version().unwrap(),
+        rom_manager::SCHEMA_VERSION
+    );
 }
 
 #[test]
@@ -232,4 +235,150 @@ fn the_fixture_profile_round_trips_with_its_snapshot_digest() {
         "a restored profile must place content exactly where the original did"
     );
     let _ = expected();
+}
+
+#[test]
+fn an_old_store_migrates_forward_preserving_its_rows() {
+    // A store written at schema 1 must reach the current version without losing
+    // what it already held — this is what makes a migration safe to ship.
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("library.sqlite3");
+    let manifest = manifest_naming(common::ROM_BYTES);
+
+    {
+        let legacy = rusqlite_open_at_v1(&file);
+        legacy
+            .execute(
+                "INSERT INTO media_target (target_id, marker_schema) VALUES (?1, 1)",
+                [TARGET_ID],
+            )
+            .unwrap();
+        legacy
+            .execute(
+                "INSERT INTO managed_manifest (target_id, generation, body) VALUES (?1, ?2, ?3)",
+                rusqlite::params![
+                    TARGET_ID,
+                    manifest.generation,
+                    serde_json::to_string(&manifest).unwrap()
+                ],
+            )
+            .unwrap();
+        legacy.pragma_update(None, "user_version", 1).unwrap();
+    }
+
+    let store = store_at(directory.path());
+    assert_eq!(store.schema_version().unwrap(), rom_manager::SCHEMA_VERSION);
+    assert_eq!(
+        store.load_manifest(TARGET_ID).unwrap(),
+        Some(manifest),
+        "migrating forward must not disturb rows written by the older schema"
+    );
+
+    // And the tables the new migration added are usable.
+    store
+        .upsert_rom_set(
+            ("game-tracers", "NES", "Tracers"),
+            ("release-tracers-usa", "USA"),
+            ("rom-set-tracer", "digest-abc", "Tracers.nes", 24),
+        )
+        .unwrap();
+    store
+        .record_pack_selection("pack-fixture", 1, &[("rom-set-tracer", "digest-abc")])
+        .unwrap();
+    assert_eq!(
+        store.pack_selection("pack-fixture", 1).unwrap(),
+        vec![("rom-set-tracer".to_string(), "digest-abc".to_string())]
+    );
+}
+
+/// Creates a store containing only migration 0001, as an older build would.
+fn rusqlite_open_at_v1(file: &std::path::Path) -> rusqlite::Connection {
+    let connection = rusqlite::Connection::open(file).unwrap();
+    connection
+        .execute_batch(include_str!("../migrations/0001_initial.sql"))
+        .unwrap();
+    connection
+}
+
+#[test]
+fn a_store_from_a_newer_build_is_refused() {
+    // Guessing at a schema this build does not understand could mean writing
+    // rows a newer build would read back as something else.
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("library.sqlite3");
+    {
+        let connection = rusqlite_open_at_v1(&file);
+        connection
+            .pragma_update(None, "user_version", rom_manager::SCHEMA_VERSION + 1)
+            .unwrap();
+    }
+    assert!(
+        Store::open(&file).is_err(),
+        "durable state from a newer build must be refused, not migrated backwards"
+    );
+}
+
+#[test]
+fn an_exact_pack_selection_survives_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let store = store_at(directory.path());
+        store
+            .upsert_rom_set(
+                ("game-tracers", "NES", "Tracers"),
+                ("release-tracers-usa", "USA"),
+                ("rom-set-tracer", "digest-abc", "Tracers.nes", 24),
+            )
+            .unwrap();
+        store
+            .record_pack_selection("pack-fixture", 1, &[("rom-set-tracer", "digest-abc")])
+            .unwrap();
+    }
+
+    let store = store_at(directory.path());
+    assert_eq!(
+        store.pack_selection("pack-fixture", 1).unwrap(),
+        vec![("rom-set-tracer".to_string(), "digest-abc".to_string())],
+        "an exact selection must mean the same thing after a restart"
+    );
+}
+
+#[test]
+fn a_durable_run_records_its_outcome_and_mirrors_the_manifest() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = store_at(directory.path());
+    let mut core = core_with(fake());
+    core.refresh().unwrap();
+    let plan = core.build_plan().unwrap();
+
+    store.upsert_target(TARGET_ID, 1).unwrap();
+    store
+        .record_inventory(TARGET_ID, &plan.inventory_digest, 10)
+        .unwrap();
+    rom_manager::approve(
+        &store,
+        &plan,
+        &Approval::grant(&plan, plan.removal_count()),
+        11,
+    )
+    .unwrap();
+
+    let outcome =
+        rom_manager::execute_approved(&store, &mut core, &plan.digest, &Default::default(), 12)
+            .unwrap();
+
+    assert!(matches!(
+        outcome,
+        rom_manager::ExecutionOutcome::Completed { .. }
+    ));
+    assert!(
+        store.load_manifest(TARGET_ID).unwrap().is_some(),
+        "a completed run mirrors what it proved is on the target"
+    );
+    // The approval was consumed, so the same plan cannot run twice.
+    assert!(
+        rom_manager::execute_approved(&store, &mut core, &plan.digest, &Default::default(), 13)
+            .is_err(),
+        "an approval is single use across the durable boundary too"
+    );
 }

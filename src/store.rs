@@ -26,7 +26,15 @@ use crate::{Approval, ManagedArtifactManifest, SyncPlan};
 
 /// Checked-in schema migrations, applied in order. Never edited once shipped —
 /// a correction is the next migration.
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../migrations/0001_initial.sql"))];
+const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../migrations/0001_initial.sql")),
+    (2, include_str!("../migrations/0002_library.sql")),
+];
+
+/// The schema version this build expects. A store opened at a lower version is
+/// migrated up; one opened at a *higher* version was written by a newer build
+/// and is refused rather than guessed at.
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -101,6 +109,16 @@ impl Store {
         let applied: u32 = self
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        // A store written by a newer build is refused rather than guessed at.
+        // Migrating forward is defined; interpreting a schema this build has
+        // never seen is not, and writing into it could produce rows the newer
+        // build reads back as something else.
+        if applied > SCHEMA_VERSION {
+            return Err(StoreError::Corrupt(format!(
+                "durable state is at schema version {applied}, newer than this build's \
+                 {SCHEMA_VERSION}"
+            )));
+        }
         for (version, sql) in MIGRATIONS {
             if *version > applied {
                 self.connection.execute_batch(sql)?;
@@ -156,6 +174,84 @@ impl Store {
             "SELECT locator FROM transport_binding WHERE target_id = ?1 ORDER BY locator",
         )?;
         let rows = statement.query_map(params![target_id], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    // ---- Library entities -------------------------------------------------
+
+    /// Records one Platform-scoped Game with a Release and a ROM Set, which is
+    /// the shape the fixture takes.
+    pub fn upsert_rom_set(
+        &self,
+        game: (&str, &str, &str),
+        release: (&str, &str),
+        rom_set: (&str, &str, &str, u64),
+    ) -> Result<(), StoreError> {
+        let (game_id, platform, title) = game;
+        let (release_id, label) = release;
+        let (rom_set_id, content_digest, file_name, size) = rom_set;
+        self.connection.execute(
+            "INSERT INTO game (game_id, platform, title) VALUES (?1, ?2, ?3)
+             ON CONFLICT(game_id) DO UPDATE SET platform = excluded.platform,
+                                                title = excluded.title",
+            params![game_id, platform, title],
+        )?;
+        self.connection.execute(
+            "INSERT INTO release (release_id, game_id, label) VALUES (?1, ?2, ?3)
+             ON CONFLICT(release_id) DO UPDATE SET label = excluded.label",
+            params![release_id, game_id, label],
+        )?;
+        self.connection.execute(
+            "INSERT INTO rom_set (rom_set_id, release_id, content_digest, file_name, size)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(rom_set_id) DO UPDATE SET content_digest = excluded.content_digest,
+                                                   file_name = excluded.file_name,
+                                                   size = excluded.size",
+            params![rom_set_id, release_id, content_digest, file_name, size],
+        )?;
+        Ok(())
+    }
+
+    /// Records a ROM Pack revision and exactly which ROM Sets it selects.
+    ///
+    /// The content digest is stored alongside the id, so a reload can tell that
+    /// a selection still means what it meant — an exact selection never
+    /// silently becomes a different one.
+    pub fn record_pack_selection(
+        &self,
+        rom_pack_id: &str,
+        revision: u32,
+        selection: &[(&str, &str)],
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "INSERT INTO rom_pack (rom_pack_id, revision, body) VALUES (?1, ?2, '{}')
+             ON CONFLICT(rom_pack_id, revision) DO NOTHING",
+            params![rom_pack_id, revision],
+        )?;
+        for (rom_set_id, content_digest) in selection {
+            self.connection.execute(
+                "INSERT INTO rom_pack_selection (rom_pack_id, revision, rom_set_id, content_digest)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(rom_pack_id, revision, rom_set_id) DO NOTHING",
+                params![rom_pack_id, revision, rom_set_id, content_digest],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The exact selection for a ROM Pack revision, as `(rom_set_id, digest)`.
+    pub fn pack_selection(
+        &self,
+        rom_pack_id: &str,
+        revision: u32,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT rom_set_id, content_digest FROM rom_pack_selection
+              WHERE rom_pack_id = ?1 AND revision = ?2 ORDER BY rom_set_id",
+        )?;
+        let rows = statement.query_map(params![rom_pack_id, revision], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
