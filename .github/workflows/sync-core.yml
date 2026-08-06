@@ -31,3 +31,52 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
+
+  # Host-behaviour probes: recorded as evidence, never gating. A Windows
+  # servicing update that changes reserved-name or case-fold behaviour must not
+  # break the build — the product's own rules are asserted by the suite above.
+  host-behaviour:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe host path and handle behaviour
+        shell: pwsh
+        run: |
+          $out = "probe-report"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Get-ChildItem docs/research/windows-path-probes/*.ps1 | ForEach-Object {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $_.FullName *>&1 |
+              Tee-Object -FilePath "$out/$($_.BaseName).txt"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-host-behaviour
+          path: probe-report
+
+  # The packaged Windows tracer (#35). Unsigned by design: code signing is out
+  # of scope for the first release.
+  package-windows:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Type-check the UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run typecheck
+      - name: Build the Windows target
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-package
+          path: |
+            target/x86_64-pc-windows-msvc/release/*.exe
+            tauri/tauri.conf.json
