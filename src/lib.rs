@@ -56,6 +56,8 @@ pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
     disambiguate_titles,
 };
+#[cfg(feature = "provider-http")]
+pub use provider::http;
 pub use provider::wire;
 pub use provider::{
     Allowance, BatchRefusal, CachedLookup, CredentialReference, FixtureTransport, LookupOutcome,
