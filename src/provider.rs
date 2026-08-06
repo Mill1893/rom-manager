@@ -273,3 +273,158 @@ impl<T: ProviderTransport> Provider<T> {
 pub const fn provider_artwork_may_reach_a_media_target() -> bool {
     false
 }
+
+/// Parsing TheGamesDB's wire format.
+///
+/// Separated from transport so the shape-handling can be exercised against
+/// checked-in fixtures with no network stack present — which is also why the
+/// fixtures are hand-authored from the public schema rather than recorded from
+/// the service. A recorded response would be provider content committed to the
+/// repository, which issue #29 forbids outright.
+pub mod wire {
+    use super::{Allowance, LookupOutcome, ProviderFailure, ProviderRecord};
+
+    /// Interprets an allowance response.
+    pub fn parse_allowance(body: &str) -> Result<Allowance, ProviderFailure> {
+        let value: serde_json::Value =
+            serde_json::from_str(body).map_err(|_| ProviderFailure::MalformedResponse)?;
+        classify_status(&value)?;
+        let remaining = value
+            .get("remaining_monthly_allowance")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(ProviderFailure::MalformedResponse)?;
+        Ok(Allowance {
+            remaining: remaining as u32,
+        })
+    }
+
+    /// Interprets a lookup response for one Platform.
+    ///
+    /// A single Platform-consistent result may auto-match. Anything else —
+    /// several candidates, or a Platform that does not agree — becomes a
+    /// suggestion, because an auto-match the user did not review is a silent
+    /// claim about their Library.
+    pub fn parse_lookup(
+        body: &str,
+        platform: &str,
+        retrieved_at: i64,
+    ) -> Result<LookupOutcome, ProviderFailure> {
+        let value: serde_json::Value =
+            serde_json::from_str(body).map_err(|_| ProviderFailure::MalformedResponse)?;
+        classify_status(&value)?;
+
+        let games = value
+            .get("data")
+            .and_then(|data| data.get("games"))
+            .and_then(serde_json::Value::as_array)
+            // A `games` that is not an array is a shape this adapter cannot
+            // read — not an empty result.
+            .ok_or(ProviderFailure::MalformedResponse)?;
+
+        if games.is_empty() {
+            return Ok(LookupOutcome::NotFound);
+        }
+
+        let records: Vec<ProviderRecord> = games
+            .iter()
+            .filter_map(|game| {
+                let id = game.get("id").and_then(serde_json::Value::as_u64)?;
+                let title = game.get("game_title").and_then(serde_json::Value::as_str)?;
+                let mut fields = std::collections::BTreeMap::new();
+                for (source, target) in [
+                    ("overview", "desc"),
+                    ("release_date", "releasedate"),
+                    ("players", "players"),
+                ] {
+                    if let Some(found) = game.get(source) {
+                        let text = match found {
+                            serde_json::Value::String(text) => text.clone(),
+                            serde_json::Value::Number(number) => number.to_string(),
+                            _ => continue,
+                        };
+                        fields.insert(target.to_string(), text);
+                    }
+                }
+                Some(ProviderRecord {
+                    provider_id: format!("tgdb-{id}"),
+                    platform: platform.to_owned(),
+                    title: title.to_owned(),
+                    fields,
+                    source_url: Some(format!("https://thegamesdb.net/game.php?id={id}")),
+                    retrieved_at,
+                })
+            })
+            .collect();
+
+        if records.is_empty() {
+            return Err(ProviderFailure::MalformedResponse);
+        }
+        if records.len() == 1 {
+            return Ok(LookupOutcome::Matched(
+                records.into_iter().next().expect("length checked"),
+            ));
+        }
+        Ok(LookupOutcome::Suggestions(records))
+    }
+
+    /// Maps a response code onto the typed failures.
+    fn classify_status(value: &serde_json::Value) -> Result<(), ProviderFailure> {
+        let code = value
+            .get("code")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(ProviderFailure::MalformedResponse)?;
+        let retry_after = value.get("retry_after").and_then(serde_json::Value::as_u64);
+
+        match code {
+            200 => Ok(()),
+            401 | 403 => Err(ProviderFailure::Authentication),
+            429 => Err(ProviderFailure::QuotaExhausted {
+                retry_after_seconds: retry_after,
+            }),
+            500..=599 => Err(ProviderFailure::Transient {
+                retry_after_seconds: retry_after,
+            }),
+            _ => Err(ProviderFailure::MalformedResponse),
+        }
+    }
+}
+
+/// A transport that answers from checked-in fixtures.
+///
+/// Exercises the whole adapter — parsing included — with no network stack, and
+/// is what the default build ships instead of an HTTP client.
+pub struct FixtureTransport {
+    pub allowance_body: String,
+    pub lookup_bodies: Vec<String>,
+    calls: usize,
+}
+
+impl FixtureTransport {
+    pub fn new(allowance_body: impl Into<String>, lookup_bodies: Vec<String>) -> Self {
+        Self {
+            allowance_body: allowance_body.into(),
+            lookup_bodies,
+            calls: 0,
+        }
+    }
+}
+
+impl ProviderTransport for FixtureTransport {
+    fn allowance(&mut self) -> Result<Allowance, ProviderFailure> {
+        wire::parse_allowance(&self.allowance_body)
+    }
+
+    fn lookup_by_hash(
+        &mut self,
+        platform: &str,
+        _sha256: &str,
+    ) -> Result<LookupOutcome, ProviderFailure> {
+        let body = self
+            .lookup_bodies
+            .get(self.calls)
+            .cloned()
+            .unwrap_or_default();
+        self.calls += 1;
+        wire::parse_lookup(&body, platform, 0)
+    }
+}

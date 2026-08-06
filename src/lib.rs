@@ -56,10 +56,11 @@ pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,
     disambiguate_titles,
 };
+pub use provider::wire;
 pub use provider::{
-    Allowance, BatchRefusal, CachedLookup, CredentialReference, LookupOutcome, Provider,
-    ProviderFailure, ProviderRecord, ProviderTransport, provider_artwork_may_reach_a_media_target,
-    redact,
+    Allowance, BatchRefusal, CachedLookup, CredentialReference, FixtureTransport, LookupOutcome,
+    Provider, ProviderFailure, ProviderRecord, ProviderTransport,
+    provider_artwork_may_reach_a_media_target, redact,
 };
 pub use publish::{
     DocumentState, Publication, PublishError, PublishPreconditions, RecoveryChoice, RecoveryCopy,
