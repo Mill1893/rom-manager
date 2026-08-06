@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -511,6 +510,14 @@ impl FilesystemTransport {
     }
 }
 
+impl FilesystemTransport {
+    /// A confined view of the target root. Opened per operation; the handles it
+    /// retains live for the walk.
+    fn confined(&self) -> Result<crate::ConfinedRoot, TransportError> {
+        Ok(crate::ConfinedRoot::open(&self.root)?)
+    }
+}
+
 impl Transport for FilesystemTransport {
     fn locator(&self) -> String {
         self.locator.clone()
@@ -558,7 +565,7 @@ impl Transport for FilesystemTransport {
     }
 
     fn read(&mut self, path: &RelativePath) -> Result<Vec<u8>, TransportError> {
-        Ok(fs::read(self.absolute(path)?)?)
+        Ok(self.confined()?.read(path)?)
     }
 
     fn write_new(
@@ -570,35 +577,32 @@ impl Transport for FilesystemTransport {
         if cancellation.is_cancelled() {
             return Err(TransportError::Cancelled);
         }
-        let absolute = self.absolute(path)?;
-        if absolute.exists() {
-            return Err(TransportError::Conflict(path.clone()));
-        }
-        if let Some(parent) = absolute.parent() {
-            fs::create_dir_all(parent)?;
-            let parent = fs::canonicalize(parent)?;
-            if !parent.starts_with(&self.root) {
-                return Err(TransportError::Unsupported(format!(
-                    "path escapes the Media Target: {path}"
-                )));
+        // The confined walk resolves each segment without following
+        // indirection, and its atomic create-if-absent is what proves the name
+        // was free. A canonicalize-then-prefix-check would be a different
+        // operation from the open that follows it.
+        match self.confined()?.write_new(path, bytes) {
+            Ok(()) => {
+                self.generation += 1;
+                Ok(())
             }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(TransportError::Conflict(path.clone()))
+            }
+            Err(error) => Err(error.into()),
         }
-        let mut file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(absolute)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        self.generation += 1;
-        Ok(())
     }
 
     fn delete_leaf(&mut self, path: &RelativePath) -> Result<(), TransportError> {
-        let absolute = self.absolute(path)?;
-        if absolute.is_dir() {
-            return Err(TransportError::Unsupported("recursive deletion".into()));
+        let confined = self.confined()?;
+        // Reparse rejection says nothing about hard links: a second name means
+        // the bytes are reachable from somewhere this application cannot see.
+        if confined.link_count(path)? > 1 {
+            return Err(TransportError::Unsupported(format!(
+                "{path} has more than one name"
+            )));
         }
-        fs::remove_file(absolute)?;
+        confined.delete_leaf(path)?;
         self.generation += 1;
         Ok(())
     }

@@ -3,10 +3,12 @@
 pub(crate) const MARKER_PATH: &str = "ROMManager/target.json";
 pub(crate) const MANIFEST_PATH: &str = "ROMManager/manifest.json";
 
+mod confined;
 mod domain;
 mod transport;
 mod workflow;
 
+pub use confined::ConfinedRoot;
 pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
     ManagementOrigin, PathError, PlanAction, RelativePath, SyncPlan, TargetArtifact, TargetMarker,
