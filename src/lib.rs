@@ -5,6 +5,7 @@ pub(crate) const MANIFEST_PATH: &str = "ROMManager/manifest.json";
 
 mod app;
 mod cache;
+mod combined;
 mod confined;
 mod domain;
 mod durable;
@@ -25,6 +26,10 @@ pub use app::{
     Progress, RomPackChoice, Snapshot, WizardStep,
 };
 pub use cache::{CacheError, Lease, MaterializationCache};
+pub use combined::{
+    COMBINED_ORDER, CombinedOutcome, MetadataAction, MetadataPreview, MetadataPreviewRow,
+    SplitReadiness, SyncStage, run_combined, split_readiness,
+};
 pub use confined::ConfinedRoot;
 pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
