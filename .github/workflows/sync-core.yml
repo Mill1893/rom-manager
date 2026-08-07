@@ -92,6 +92,7 @@ jobs:
           npm run build
       - name: Build the Windows target
         run: cargo build --release --target x86_64-pc-windows-msvc
+      # Frontend already built in the UI step; see tauri/README.md.
       - name: Bundle the unsigned NSIS installer
         run: npx --prefix ui tauri build --bundles nsis
       - name: Run the filesystem tracer against a real Windows volume
@@ -138,6 +139,8 @@ jobs:
           npm run build
       - name: Build the release binary
         run: cargo build --release
+      # The frontend is built in the UI step above rather than by a
+      # beforeBuildCommand — see tauri/README.md for why that hook is absent.
       - name: Bundle the AppImage
         run: npx --prefix ui tauri build --bundles appimage
       - name: Record bundled dependency licences
