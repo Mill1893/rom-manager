@@ -312,12 +312,35 @@ mod imp {
             )
         };
         if status != STATUS_SUCCESS {
-            return Err(io::Error::other(format!(
-                "NTSTATUS 0x{:08X}",
-                status as u32
-            )));
+            return Err(ntstatus_error(status));
         }
         Ok(unsafe { OwnedHandle::from_raw_handle(handle as _) })
+    }
+
+    /// Maps an NTSTATUS onto an `io::Error` **with its kind preserved**.
+    ///
+    /// Stringifying the status loses the kind, and callers genuinely branch on
+    /// it: the confined walk creates a missing directory only when an open
+    /// reports `NotFound`, so a status flattened to `Other` silently turned
+    /// "create the parent" into "fail". CI caught exactly that.
+    fn ntstatus_error(status: NTSTATUS) -> io::Error {
+        const STATUS_OBJECT_NAME_NOT_FOUND: NTSTATUS = 0xC000_0034_u32 as NTSTATUS;
+        const STATUS_OBJECT_PATH_NOT_FOUND: NTSTATUS = 0xC000_003A_u32 as NTSTATUS;
+        const STATUS_OBJECT_NAME_COLLISION: NTSTATUS = 0xC000_0035_u32 as NTSTATUS;
+        const STATUS_ACCESS_DENIED: NTSTATUS = 0xC000_0022_u32 as NTSTATUS;
+        const STATUS_SHARING_VIOLATION: NTSTATUS = 0xC000_0043_u32 as NTSTATUS;
+        const STATUS_REPARSE_POINT_ENCOUNTERED: NTSTATUS = 0xC000_050B_u32 as NTSTATUS;
+
+        let kind = match status {
+            STATUS_OBJECT_NAME_NOT_FOUND | STATUS_OBJECT_PATH_NOT_FOUND => io::ErrorKind::NotFound,
+            STATUS_OBJECT_NAME_COLLISION => io::ErrorKind::AlreadyExists,
+            STATUS_ACCESS_DENIED => io::ErrorKind::PermissionDenied,
+            // A reparse point refused mid-walk is the confinement guarantee
+            // firing, not a missing file — it must never look creatable.
+            STATUS_SHARING_VIOLATION | STATUS_REPARSE_POINT_ENCOUNTERED => io::ErrorKind::Other,
+            _ => io::ErrorKind::Other,
+        };
+        io::Error::new(kind, format!("NTSTATUS 0x{:08X}", status as u32))
     }
 
     impl Dir {
