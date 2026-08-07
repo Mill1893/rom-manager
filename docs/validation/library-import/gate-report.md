@@ -67,10 +67,10 @@ Four properties the rest depends on, each asserted directly rather than argued:
 - **Accessibility on the import workflow.** The UI components for import do not exist yet; the plan-review step's coverage does not extend to them.
 - **Performance at Library scale.** The 10,000-artifact figure in the sync-core report measures planning, not import throughput or hashing.
 - **Formats beyond loose files and ZIP** — deferred to [#19](https://github.com/Mill1893/rom-manager/issues/19).
-- **Any CI result.**
+- ~~**Any CI result.**~~ **Superseded 2026-08-07** — see the disposition above.
 
 ## Required before this gate can close
 
-1. **Enable GitHub Actions**, and confirm these suites pass on both `ubuntu-latest` and `windows-latest`.
+1. ~~**Enable GitHub Actions**, and confirm these suites pass on both `ubuntu-latest` and `windows-latest`.~~ **Done.** Green on both, on every push.
 2. Build the import UI and cover its accessibility, alongside the remaining work on [#34](https://github.com/Mill1893/rom-manager/issues/34).
 3. Measure import and hashing throughput against a declared threshold.

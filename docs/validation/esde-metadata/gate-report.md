@@ -61,10 +61,10 @@ The first release exports device metadata only for the version-pinned **ES-DE on
 - **Accessibility of the metadata workflow** — the UI does not exist yet ([#34](https://github.com/Mill1893/rom-manager/issues/34)).
 - **A real ES-DE installation.** Every test uses synthetic gamelists shaped like ES-DE's. Nothing here has been read by ES-DE itself, which is [#38](https://github.com/Mill1893/rom-manager/issues/38)'s territory on the Odin.
 - **MTP metadata publication.** The atomicity limit is modelled and disclosed but never exercised against a device.
-- **Any CI result.**
+- ~~**Any CI result.**~~ **Superseded 2026-08-07** — see the disposition above.
 
 ## Required before this gate can close
 
-1. **Enable GitHub Actions** and confirm these suites pass on both hosts.
+1. ~~**Enable GitHub Actions** and confirm these suites pass on both hosts.~~ **Done.** Green on both, on every push.
 2. Build the metadata workflow UI and cover its accessibility.
 3. Read an exported gamelist with a real ES-DE installation, ideally on the Odin during [#38](https://github.com/Mill1893/rom-manager/issues/38).
