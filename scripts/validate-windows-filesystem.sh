@@ -200,25 +200,29 @@ finish() {
 ENV_FILE="${ENV_FILE:-docs/validation/windows-sync-core/windows-filesystem-results.env}"
 mkdir -p "$(dirname "$ENV_FILE")"
 
-TOTAL_STAGES=9
+TOTAL_STAGES=10
 TOTAL_MINUTES=75
 
 banner "Validate the packaged filesystem tracer on Windows (#37)"
 
 # ── 1 ────────────────────────────────────────────────────────────────────
 stage "Identify the exact build" 5
-say "Every result below is only meaningful against one exact installer."
-step "Copy the installer you are about to test into this folder."
-ask INSTALLER_PATH "Path to the .exe installer:"
-if [[ -f "$INSTALLER_PATH" ]]; then
-  INSTALLER_SHA=$(sha256sum "$INSTALLER_PATH" | cut -d' ' -f1)
-  say "sha256: $INSTALLER_SHA"
+say "Every result below is only meaningful against one exact build."
+note "The NSIS installer is issue #35 and does not exist yet. What does exist is"
+note "rom-manager-tracer.exe, published by the package-windows CI job as the"
+note "windows-unsigned-package artifact. Download that and point this at it."
+step "Copy rom-manager-tracer.exe (or the installer, once there is one) here."
+ask TRACER_PATH "Path to rom-manager-tracer.exe:"
+if [[ -f "$TRACER_PATH" ]]; then
+  BUILD_SHA=$(sha256sum "$TRACER_PATH" | cut -d' ' -f1)
+  say "sha256: $BUILD_SHA"
 else
   warn "not found — record the hash by hand"
-  ask INSTALLER_SHA "Installer sha256:"
+  ask BUILD_SHA "Build sha256:"
 fi
-ask BUILD_COMMIT "Commit the installer was built from:"
-write_env INSTALLER_SHA256 "$INSTALLER_SHA"
+ask BUILD_COMMIT "Commit it was built from:"
+write_env TRACER_PATH "$TRACER_PATH"
+write_env BUILD_SHA256 "$BUILD_SHA"
 write_env BUILD_COMMIT "$BUILD_COMMIT"
 
 # ── 2 ────────────────────────────────────────────────────────────────────
@@ -246,6 +250,35 @@ write_env STORAGE_FILESYSTEM "$STORAGE_FILESYSTEM"
 write_env STORAGE_LABEL "$STORAGE_LABEL"
 
 # ── 4 ────────────────────────────────────────────────────────────────────
+stage "Run the tracer against that storage" 10
+say "This is the one stage that measures rather than asks. It runs every"
+say "scenario the sync core claims against the real volume you just recorded."
+note "The tracer works inside one folder it creates and deletes. It never"
+note "touches anything else on the card, so running it on media holding real"
+note "ROMs is safe."
+ask TRACER_TARGET "Drive or folder to validate (for example E:\\):"
+TRACER_REPORT="$(dirname "$ENV_FILE")/tracer-${STORAGE_FILESYSTEM:-unknown}.json"
+if [[ -x "$TRACER_PATH" || -f "$TRACER_PATH" ]]; then
+  say "Running the tracer — this takes a few seconds."
+  if "$TRACER_PATH" --target "$TRACER_TARGET" --json > "$TRACER_REPORT" 2>&1; then
+    TRACER_RESULT=pass
+    say "Every scenario the tracer attempted passed."
+  else
+    TRACER_RESULT=FAIL
+    warn "A scenario failed. The report is at $TRACER_REPORT"
+  fi
+  say "Report written to $TRACER_REPORT"
+  note "Two scenarios report as skipped by design: capacity blocking and"
+  note "disconnect. You perform those by hand in the stages below."
+else
+  warn "the tracer was not found — record the outcome by hand"
+  ask TRACER_RESULT "Tracer result (pass / FAIL / not-run):"
+fi
+write_env TRACER_TARGET "$TRACER_TARGET"
+write_env TRACER_RESULT "$TRACER_RESULT"
+write_env TRACER_REPORT "$TRACER_REPORT"
+
+# ── 5 ────────────────────────────────────────────────────────────────────
 stage "Install, launch, and confirm offline operation" 10
 step "Run the installer. Accept the default (per-machine) location."
 step "Launch ROM Manager and let it reach its first screen."

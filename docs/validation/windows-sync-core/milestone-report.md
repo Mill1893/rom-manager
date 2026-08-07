@@ -28,11 +28,41 @@ The single remaining blocking cause is **access to physical hardware** — a Win
 | Environment | Used for | Status |
 | --- | --- | --- |
 | Linux dev host (WSL2, Ubuntu 24.04, ext4) | Full automated suite, confinement against real symlinks, scale baseline, network-denied run | Exercised |
-| Windows 11 build 26200, NTFS, non-admin | One-off path and handle probes ([#52](https://github.com/Mill1893/rom-manager/issues/52)) | Exercised, **diagnostic only** |
+| Windows 11 build 26200, NTFS, non-admin | Path and handle probes ([#52](https://github.com/Mill1893/rom-manager/issues/52)), **and the full tracer scenario matrix** | Exercised |
 | `x86_64-pc-windows-gnu` cross-compilation | Type-checking the Windows code paths | Compiles |
 | Windows CI runner, Server 2025 build 26100 | Native build, full suite, packaging | **Green** |
 | Packaged Windows host | Installed-application behaviour | **Never run** |
 | AYN Odin 3 | Physical WPD validation | **Never run** |
+
+## The tracer on a real Windows desktop
+
+`rom-manager-tracer` runs every scenario the sync core claims against a volume a
+person points it at. On Windows 11 build 26200, NTFS, non-admin, from a
+`x86_64-pc-windows-gnu` cross-build:
+
+| Scenario | Result |
+| --- | --- |
+| Marker initialization | pass |
+| Add and read-back verification | pass — 24,592 bytes placed and verified |
+| Retain | pass — the second run wants no changes |
+| Adoption | pass — pre-existing identical content adopted intact |
+| Conflict | pass — blocked with `PathConflict` |
+| Managed removal | pass |
+| Cancellation | pass — 1 action reported not attempted |
+| Post-plan mutation | pass — the stale approval was refused |
+| Manifest agreement | pass — a disagreeing manifest produced a blocked plan |
+| Refresh plus new-plan recovery | pass |
+| Durable state across restart | pass — schema 5 reopened with bindings intact |
+| Changed locator | pass — identity and manifest survived relocation |
+| Capacity blocking | **skipped** — proving it means filling the volume |
+| Disconnect | **skipped** — requires physically removing media mid-write |
+
+**What this does and does not establish.** It is the sync core executing on a
+real Windows desktop rather than a CI runner, which is the first evidence of
+that kind. It is *not* the packaged application: there is no installer, the
+tracer is a console program, and the two skipped scenarios were not attempted.
+They are reported as skipped rather than counted, because a pass that did not
+happen is worse than a gap that is named.
 
 ## Automated suites
 

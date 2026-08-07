@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
+[[bin]]
+name = "rom-manager-tracer"
+path = "src/bin/tracer.rs"
+
 [features]
 # Off by default, deliberately. The default build contains no network-capable
 # code at all, which is what the privacy evidence rests on; turning this on is a

@@ -253,12 +253,35 @@ write_env OFFLINE_OPERATION "$OFFLINE_RESULT"
 # ── 4 ────────────────────────────────────────────────────────────────────
 stage "Filesystem coverage" 14
 warn "Each filesystem needs a REAL volume — formatting a USB stick is fine."
+note "rom-manager-tracer runs the whole scenario matrix against a volume and"
+note "reports what it observed. It is published by the package-linux CI job as"
+note "the linux-appimage-inputs artifact. Give its path to measure rather than"
+note "judge by eye; leave it blank to answer by hand."
+ask TRACER_PATH "Path to rom-manager-tracer (blank to skip):"
+write_env TRACER_PATH "$TRACER_PATH"
 for FS in ext4 exfat fat32; do
   case "$FS" in
     ext4)  step "Sync to an ext4 volume. This is the baseline." ;;
     exfat) step "Sync to an exFAT volume — the common SD-card format." ;;
     fat32) step "Attempt a sync to a FAT32 volume. It must BLOCK with a reason." ;;
   esac
+  if [[ -n "$TRACER_PATH" && -x "$TRACER_PATH" ]]; then
+    ask MOUNT "Mount point of the $FS volume (blank to answer by hand):"
+    if [[ -n "$MOUNT" && -d "$MOUNT" ]]; then
+      REPORT="$(dirname "$ENV_FILE")/tracer-${FS}.json"
+      if "$TRACER_PATH" --target "$MOUNT" --json > "$REPORT" 2>&1; then
+        RESULT=pass
+        say "Every scenario the tracer attempted passed. Report: $REPORT"
+      else
+        RESULT=FAIL
+        warn "A scenario failed. Report: $REPORT"
+      fi
+      write_env "FS_${FS^^}_REPORT" "$REPORT"
+      say "Recorded $RESULT for $FS."
+      write_env "FS_${FS^^}" "$RESULT"
+      continue
+    fi
+  fi
   ask RESULT "Result for $FS (pass / FAIL / blocked-as-expected / n-a):"
   write_env "FS_${FS^^}" "$RESULT"
   if [[ "$FS" == "fat32" ]]; then

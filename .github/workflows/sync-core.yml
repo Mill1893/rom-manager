@@ -90,11 +90,19 @@ jobs:
           npm test
       - name: Build the Windows target
         run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Run the filesystem tracer against a real Windows volume
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\tracer" | Out-Null
+          & "target\x86_64-pc-windows-msvc\release\rom-manager-tracer.exe" `
+            --target "$env:RUNNER_TEMP\tracer" --json | Tee-Object -FilePath tracer-windows.json
+          if ($LASTEXITCODE -ne 0) { throw "the tracer reported a failing scenario" }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-unsigned-package
           path: |
-            target/x86_64-pc-windows-msvc/release/*.exe
+            target/x86_64-pc-windows-msvc/release/rom-manager-tracer.exe
+            tracer-windows.json
             tauri/tauri.conf.json
 
   # The Linux AppImage (#76). Unsigned, like the Windows package: signing is
@@ -129,9 +137,15 @@ jobs:
             | sort -u > packaging/linux/resolved-licences.txt
       - name: Validate the desktop entry
         run: desktop-file-validate packaging/linux/rom-manager.desktop
+      - name: Run the filesystem tracer against a real Linux volume
+        run: |
+          mkdir -p "$RUNNER_TEMP/tracer"
+          ./target/release/rom-manager-tracer \
+            --target "$RUNNER_TEMP/tracer" --json | tee tracer-linux.json
       - uses: actions/upload-artifact@v4
         with:
           name: linux-appimage-inputs
           path: |
-            target/release/rom-manager
+            target/release/rom-manager-tracer
+            tracer-linux.json
             packaging/linux/
