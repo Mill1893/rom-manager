@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MediaTargetChoice, RomPackChoice, Snapshot } from "./bindings";
+import type { MediaTargetChoice, RomPackChoice, ScanSummary, Snapshot } from "./bindings";
 import { PlanReview } from "./PlanReview";
 import { commands, subscribe } from "./invoke";
 import { mustRefreshBeforeContinuing, outcomeAnnouncement, progressAnnouncement } from "./wizard";
@@ -113,8 +113,43 @@ export function App(): React.JSX.Element {
         </p>
       )}
 
+      {snapshot.lastScan !== null && <ScanResult summary={snapshot.lastScan} />}
+
       <Step snapshot={snapshot} busy={busy} run={run} />
     </main>
+  );
+}
+
+/**
+ * What the last scan took in, and what it refused.
+ *
+ * The refusals are listed individually rather than counted. "3 files skipped"
+ * tells a user that something is missing without telling them what, which is
+ * the worst of both: enough to worry about, not enough to act on.
+ */
+function ScanResult({ summary }: { readonly summary: ScanSummary }): React.JSX.Element {
+  return (
+    <section aria-labelledby="scan-heading">
+      <h2 id="scan-heading">Last scan</h2>
+      <p role="status">
+        {summary.romSetsAdded} game{summary.romSetsAdded === 1 ? "" : "s"} added from{" "}
+        {summary.foldersScanned} folder{summary.foldersScanned === 1 ? "" : "s"}.
+      </p>
+
+      {summary.declined.length > 0 && (
+        <>
+          <h3>Not added ({summary.declined.length})</h3>
+          <ul>
+            {summary.declined.map((file) => (
+              <li key={`${file.path}:${file.code}`}>
+                <code>{file.path}</code>
+                <p>{file.remediation}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

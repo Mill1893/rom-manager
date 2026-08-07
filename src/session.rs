@@ -103,6 +103,7 @@ pub struct Session<T: Transport> {
     progress: Option<Progress>,
     outcome: Option<OutcomeView>,
     recovery_disclosure: Vec<String>,
+    last_scan: Option<crate::app::ScanSummary>,
     cancellation: CancellationToken,
     library: Option<crate::Library>,
     packs: Vec<RomPackChoice>,
@@ -125,6 +126,7 @@ impl<T: Transport> Session<T> {
             progress: None,
             outcome: None,
             recovery_disclosure: Vec::new(),
+            last_scan: None,
             cancellation: CancellationToken::default(),
             library: None,
             packs: Vec::new(),
@@ -223,6 +225,27 @@ impl<T: Transport> Session<T> {
                 Err(_) => continue,
             }
         }
+
+        // Recorded on the snapshot so the UI can show what was refused. A scan
+        // that reported only its successes would leave a user whose collection
+        // is missing a game with no way to find out which one.
+        self.last_scan = Some(crate::app::ScanSummary {
+            folders_scanned: reports.len(),
+            rom_sets_added: reports.iter().map(|report| report.rom_sets.len()).sum(),
+            declined: reports
+                .iter()
+                .flat_map(|report| &report.declined)
+                .map(|diagnostic| crate::app::DeclinedFile {
+                    path: diagnostic
+                        .location
+                        .source
+                        .clone()
+                        .unwrap_or_else(|| "an unnamed file".to_owned()),
+                    code: diagnostic.reason.as_str().to_owned(),
+                    remediation: diagnostic.remediation().to_owned(),
+                })
+                .collect(),
+        });
         Ok(reports)
     }
 
@@ -315,6 +338,7 @@ impl<T: Transport> Session<T> {
             progress: self.progress.clone(),
             outcome: self.outcome.clone(),
             recovery_disclosure: self.recovery_disclosure.clone(),
+            last_scan: self.last_scan.clone(),
         }
     }
 

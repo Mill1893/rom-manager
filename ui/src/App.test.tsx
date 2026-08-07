@@ -39,6 +39,7 @@ function snapshot(step: WizardStep, extra: Partial<Snapshot> = {}): Snapshot {
     progress: null,
     outcome: null,
     recoveryDisclosure: [],
+    lastScan: null,
     ...extra,
   };
 }
@@ -270,5 +271,57 @@ describe("scanning", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /scan for roms/i }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("scan_import_folders", undefined));
+  });
+});
+
+describe("what a scan refused", () => {
+  it("names every declined file instead of counting them", async () => {
+    // "3 files skipped" tells a user something is missing without telling them
+    // what — enough to worry about, not enough to act on.
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        {
+          lastScan: {
+            foldersScanned: 1,
+            romSetsAdded: 4,
+            declined: [
+              {
+                path: "/home/andy/roms/Something.iso",
+                code: "platform_undetermined",
+                remediation: "Choose the Platform for this content, or place it in a Platform folder.",
+              },
+              {
+                path: "/home/andy/roms/notes.docx",
+                code: "unknown_extension",
+                remediation: "This release does not import this extension. Convert the content.",
+              },
+            ],
+          },
+        },
+      ),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("/home/andy/roms/Something.iso")).toBeInTheDocument();
+    expect(screen.getByText("/home/andy/roms/notes.docx")).toBeInTheDocument();
+    expect(screen.getByText(/choose the platform/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /not added \(2\)/i })).toBeInTheDocument();
+  });
+
+  it("says nothing about refusals when there were none", async () => {
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        { lastScan: { foldersScanned: 1, romSetsAdded: 4, declined: [] } },
+      ),
+    );
+
+    render(<App />);
+    await screen.findByRole("heading", { name: /last scan/i });
+    expect(screen.queryByRole("heading", { name: /not added/i })).toBeNull();
   });
 });

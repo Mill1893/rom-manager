@@ -491,3 +491,52 @@ fn scanning_everything_with_no_library_is_refused_rather_than_silently_doing_not
 
     assert!(session.scan_all_import_folders().is_err());
 }
+
+#[test]
+fn the_snapshot_carries_what_the_scan_refused_and_why() {
+    // A scan that reported only its successes would leave a user whose
+    // collection is missing a game with no way to find out which one.
+    let directory = tempfile::tempdir().unwrap();
+    let incoming = directory.path().join("incoming");
+    fs::create_dir_all(&incoming).unwrap();
+    fs::write(incoming.join("Tracers.nes"), ROM_BYTES).unwrap();
+    fs::write(incoming.join("Ambiguous.iso"), b"could be two platforms").unwrap();
+    fs::write(incoming.join("notes.docx"), b"a document").unwrap();
+
+    let store = Store::open(&directory.path().join("state.sqlite3")).unwrap();
+    let mut session: Session<rom_manager::FakeTransport> = Session::new(
+        store,
+        Box::new(|_| Ok(rom_manager::FakeTransport::new("fake://", 1 << 20))),
+    );
+    session.set_library(Library::open(directory.path().join("library")).unwrap());
+    let folder_id = session
+        .nominate_import_folder(&incoming.to_string_lossy())
+        .unwrap();
+
+    assert!(
+        session.snapshot().last_scan.is_none(),
+        "nothing is claimed before a scan happens"
+    );
+
+    session.scan_import_folder(folder_id).unwrap();
+    session.scan_all_import_folders().unwrap();
+
+    let summary = session.snapshot().last_scan.expect("a scan was recorded");
+    assert_eq!(
+        summary.rom_sets_added, 0,
+        "the first scan already took it in"
+    );
+    assert_eq!(summary.declined.len(), 2);
+
+    for declined in &summary.declined {
+        assert!(!declined.path.is_empty(), "every refusal names its file");
+        assert!(
+            declined.remediation.len() > 20,
+            "a refusal with no remedy leaves the user stuck: {}",
+            declined.code
+        );
+    }
+    let codes: Vec<&str> = summary.declined.iter().map(|d| d.code.as_str()).collect();
+    assert!(codes.contains(&"platform_undetermined"), "{codes:?}");
+    assert!(codes.contains(&"unknown_extension"), "{codes:?}");
+}

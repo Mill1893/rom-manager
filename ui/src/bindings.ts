@@ -116,6 +116,27 @@ export interface OutcomeView {
   readonly refreshRequired: boolean;
 }
 
+/**
+ * What a scan of the remembered folders produced.
+ *
+ * The declined list is the part that matters. A scan reporting only its
+ * successes would leave a user whose collection is missing a game with no way
+ * to find out which one.
+ */
+export interface DeclinedFile {
+  readonly path: string;
+  /** Stable machine-readable code, for reports and matching. */
+  readonly code: string;
+  /** The sentence the user acts on. */
+  readonly remediation: string;
+}
+
+export interface ScanSummary {
+  readonly foldersScanned: number;
+  readonly romSetsAdded: number;
+  readonly declined: readonly DeclinedFile[];
+}
+
 /** The authority. Every command returns one; the UI replaces what it holds. */
 export interface Snapshot {
   readonly step: WizardStep;
@@ -125,6 +146,7 @@ export interface Snapshot {
   readonly progress: Progress | null;
   readonly outcome: OutcomeView | null;
   readonly recoveryDisclosure: readonly string[];
+  readonly lastScan: ScanSummary | null;
 }
 
 export type AppEvent =

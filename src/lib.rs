@@ -34,8 +34,8 @@ mod workflow;
 mod wpd;
 
 pub use app::{
-    AppEvent, CancellationState, MediaTargetChoice, OutcomeKind, OutcomeView, Phase, PlanView,
-    Progress, RomPackChoice, Snapshot, WizardStep,
+    AppEvent, CancellationState, DeclinedFile, MediaTargetChoice, OutcomeKind, OutcomeView, Phase,
+    PlanView, Progress, RomPackChoice, ScanSummary, Snapshot, WizardStep,
 };
 pub use cache::{CacheError, Lease, MaterializationCache};
 pub use combined::{
