@@ -150,6 +150,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
                                   librsvg2-dev patchelf desktop-file-utils
+          # FUSE, so the containment check below can mount the finished bundle
+          # and see the real thing. Ubuntu 24.04 renamed libfuse2 to
+          # libfuse2t64; accept either rather than pin to one runner image.
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
       - name: Type-check and test the UI
         working-directory: ui
         run: |
@@ -195,6 +199,15 @@ jobs:
             packaging/linux/bundled-licences.md
       - name: Validate the desktop entry
         run: desktop-file-validate packaging/linux/rom-manager.desktop
+      # #76 asks that the AppImage write nothing into its own mount point. That
+      # has been true since 2026-08-06 but only as a one-time manual
+      # observation, and the regression it guards against is silent: an
+      # application keeping state beside itself works fine on the machine that
+      # built it and loses the Library on the next upgrade.
+      - name: Assert the bundle cannot be written to while it runs
+        run: |
+          ./scripts/assert-appimage-containment.sh \
+            "$(ls tauri/target/release/bundle/appimage/*.AppImage | head -1)"
       - name: Run the filesystem tracer against a real Linux volume
         run: |
           mkdir -p "$RUNNER_TEMP/tracer"
