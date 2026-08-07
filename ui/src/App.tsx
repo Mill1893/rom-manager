@@ -19,8 +19,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MediaTargetChoice, RomPackChoice, ScanSummary, Snapshot } from "./bindings";
+import type {
+  MediaTargetChoice,
+  OutcomeKind,
+  RomPackChoice,
+  ScanSummary,
+  Snapshot,
+} from "./bindings";
+import type { StateName } from "./tokens";
 import { PlanReview } from "./PlanReview";
+import { StatusBadge } from "./StatusBadge";
 import { commands, subscribe } from "./invoke";
 import { mustRefreshBeforeContinuing, outcomeAnnouncement, progressAnnouncement } from "./wizard";
 
@@ -333,11 +341,33 @@ function Executing({ snapshot, busy, run }: StepProps): React.JSX.Element {
   );
 }
 
+/**
+ * Which declared state an outcome is.
+ *
+ * `indeterminate` is deliberately not folded in with the other non-successes.
+ * "We could not establish what reached the device" is a different thing to tell
+ * someone than "this failed", and the tokens name it separately for that
+ * reason.
+ */
+function badgeFor(kind: OutcomeKind): StateName {
+  switch (kind) {
+    case "completed":
+      return "success";
+    case "indeterminate":
+      return "indeterminate";
+    case "cancelled":
+      return "stale";
+    case "incomplete":
+      return "blocked";
+  }
+}
+
 function Result({ snapshot, busy, run }: StepProps): React.JSX.Element {
   const outcome = snapshot.outcome;
   return (
     <section aria-labelledby="result-heading">
       <h2 id="result-heading">Finished</h2>
+      {outcome !== null && <StatusBadge state={badgeFor(outcome.kind)} />}
       <p role="status" aria-live="polite">
         {outcome === null ? "No result was recorded." : outcomeAnnouncement(outcome)}
       </p>

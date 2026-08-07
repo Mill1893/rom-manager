@@ -136,3 +136,43 @@ fn no_fixture_contains_recorded_provider_content() {
         );
     }
 }
+
+#[test]
+fn attribution_is_stamped_when_a_record_is_parsed_not_when_it_is_shown() {
+    // Configuration describes the provider *now*; a cached record may have
+    // arrived a year ago under different terms. Re-labelling old data with
+    // today's notice is a guess, not provenance — so the credit line and terms
+    // are fixed at the moment the bytes are read.
+    let outcome = wire::parse_lookup(UNIQUE, "NES", 500).unwrap();
+    let LookupOutcome::Matched(record) = outcome else {
+        panic!("the unique fixture matches");
+    };
+
+    assert_eq!(record.retrieved_at, 500);
+    assert_eq!(record.attribution, wire::thegamesdb_attribution());
+    assert!(record.attribution.notice.contains("TheGamesDB"));
+    assert!(record.may_be_displayed());
+}
+
+#[test]
+fn every_parsed_suggestion_carries_attribution_too() {
+    // A suggestion list is provider data as much as a match is.
+    let outcome = wire::parse_lookup(AMBIGUOUS, "NES", 100).unwrap();
+    let LookupOutcome::Suggestions(records) = outcome else {
+        panic!("the ambiguous fixture suggests");
+    };
+    assert!(records.len() > 1);
+    for record in records {
+        assert!(record.may_be_displayed(), "{}", record.title);
+    }
+}
+
+#[test]
+fn no_fixture_here_is_a_recorded_response_from_the_provider() {
+    // #29 forbids bundling provider content, and a recorded response would
+    // breach that permanently. Every fixture is hand-authored from the schema,
+    // so none should carry a real game's description.
+    for fixture in [UNIQUE, AMBIGUOUS, NOT_FOUND, ALLOWANCE] {
+        assert!(fixture.len() < 8 * 1024, "a fixture grew to response size");
+    }
+}

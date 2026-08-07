@@ -8,6 +8,7 @@
 
 import { useId, useState } from "react";
 import type { BlockReason, PlanView } from "./bindings";
+import { StatusBadge } from "./StatusBadge";
 import { executionGate } from "./wizard";
 
 export interface PlanReviewProps {
@@ -83,7 +84,13 @@ export function PlanReview({ plan, onExecute, onRefresh }: PlanReviewProps): Rea
         <dt>Collection revision</dt>
         <dd>{plan.romPackRevision}</dd>
         <dt>Device contents</dt>
-        <dd>{plan.inventoryFresh ? "Up to date" : "Changed since this plan was built"}</dd>
+        <dd>
+          {plan.inventoryFresh ? (
+            <StatusBadge state="success" label="Up to date" />
+          ) : (
+            <StatusBadge state="stale" label="Changed since this plan was built" />
+          )}
+        </dd>
         <dt>Space needed</dt>
         <dd>
           {plan.peakCapacityRequired} bytes, including a {plan.safetyMargin} byte margin
@@ -116,7 +123,9 @@ export function PlanReview({ plan, onExecute, onRefresh }: PlanReviewProps): Rea
         // role="alert" so a screen reader hears about blockers without having
         // to go looking for them.
         <section aria-label="Conflicts" role="alert">
-          <h3>{plan.conflicts.length} conflict(s) to resolve</h3>
+          <h3>
+            <StatusBadge state="blocked" /> {plan.conflicts.length} conflict(s) to resolve
+          </h3>
           <ul>
             {plan.conflicts.map((reason, index) => (
               <li key={index}>{describeConflict(reason)}</li>

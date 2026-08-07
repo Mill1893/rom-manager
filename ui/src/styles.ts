@@ -120,6 +120,20 @@ li { margin-bottom: var(--density-gutter); }
 
 progress { width: 100%; height: var(--density-gutter); }
 
+/* Colour, shape, and words together. A reader who cannot distinguish the
+   palette -- colour blindness, a high-contrast mode, a monochrome display --
+   still gets the state from the drawn shape and the label beside it. */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.1em 0.5em;
+  border-style: solid;
+  border-radius: 3px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: ${motion.reducedMotionTransition} !important; }
 }

@@ -83,9 +83,9 @@ pub use projection::{
 pub use provider::http;
 pub use provider::wire;
 pub use provider::{
-    Allowance, BatchRefusal, CachedLookup, CredentialReference, FixtureTransport, LookupOutcome,
-    Provider, ProviderFailure, ProviderRecord, ProviderTransport,
-    provider_artwork_may_reach_a_media_target, redact,
+    ACCEPTED_TERMS_VERSION, Allowance, Attribution, BatchRefusal, CachedLookup,
+    CredentialReference, FixtureTransport, LookupOutcome, Provider, ProviderFailure,
+    ProviderRecord, ProviderTransport, provider_artwork_may_reach_a_media_target, redact,
 };
 pub use publish::{
     DocumentState, Publication, PublishError, PublishPreconditions, RecoveryChoice, RecoveryCopy,

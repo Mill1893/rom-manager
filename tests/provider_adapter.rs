@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 
 use rom_manager::{
-    Allowance, BatchRefusal, LookupOutcome, Provider, ProviderFailure, ProviderRecord,
-    ProviderTransport, provider_artwork_may_reach_a_media_target, redact,
+    Allowance, BatchRefusal, CachedLookup, LookupOutcome, Provider, ProviderFailure,
+    ProviderRecord, ProviderTransport, provider_artwork_may_reach_a_media_target, redact,
 };
 
 const DAY: i64 = 24 * 60 * 60;
@@ -56,6 +56,7 @@ fn record() -> ProviderRecord {
         fields: BTreeMap::new(),
         source_url: Some("https://thegamesdb.net/game.php?id=1234".into()),
         retrieved_at: 100,
+        attribution: rom_manager::wire::thegamesdb_attribution(),
     }
 }
 
@@ -274,4 +275,102 @@ fn platform_scope_is_part_of_the_cache_identity() {
 
     assert_eq!(other, LookupOutcome::NotFound);
     assert_eq!(provider.cached_entry_count(), 2);
+}
+
+// ── Attribution and terms provenance (issue #30, under #29 and #9) ──────────
+
+#[test]
+fn every_record_carries_the_credit_line_it_must_be_shown_with() {
+    // Displaying provider data without saying whose it is is using someone
+    // else's work uncredited, whatever the intent.
+    let record = record();
+    assert!(!record.attribution.notice.trim().is_empty());
+    assert!(record.attribution.notice.contains("TheGamesDB"));
+    assert!(record.attribution.terms_url.starts_with("https://"));
+    assert!(record.may_be_displayed());
+}
+
+#[test]
+fn a_record_from_terms_this_build_does_not_know_is_withheld() {
+    // Fail-closed. The cost is a lookup the user can repeat; the alternative is
+    // quietly pasting today's notice over data obtained under other terms.
+    let mut record = record();
+    record.attribution.terms_version = rom_manager::ACCEPTED_TERMS_VERSION + 1;
+
+    assert!(
+        !record.may_be_displayed(),
+        "an unknown terms revision must withhold the record"
+    );
+}
+
+#[test]
+fn a_record_with_no_credit_line_is_never_displayable() {
+    let mut record = record();
+    record.attribution.notice = "   ".into();
+    assert!(!record.may_be_displayed());
+}
+
+#[test]
+fn a_cached_entry_predating_a_terms_change_stops_being_usable() {
+    // Freshness and permission are different questions. An entry cached
+    // yesterday under superseded terms is fresh and not usable.
+    let mut stale_terms = record();
+    stale_terms.attribution.terms_version = rom_manager::ACCEPTED_TERMS_VERSION + 1;
+
+    let cached = CachedLookup {
+        outcome: LookupOutcome::Matched(stale_terms),
+        cached_at: 1_000,
+        upstream_unavailable: false,
+    };
+
+    assert!(!cached.attribution_is_current());
+    assert!(
+        !cached.is_usable(1_100),
+        "a fresh entry under unknown terms is still not usable"
+    );
+}
+
+#[test]
+fn one_suggestion_under_unknown_terms_withholds_the_whole_set() {
+    // Showing three of four suggestions and silently dropping the fourth would
+    // present an incomplete list as a complete one.
+    let mut bad = record();
+    bad.attribution.terms_version = rom_manager::ACCEPTED_TERMS_VERSION + 1;
+
+    let cached = CachedLookup {
+        outcome: LookupOutcome::Suggestions(vec![record(), bad]),
+        cached_at: 1_000,
+        upstream_unavailable: false,
+    };
+    assert!(!cached.attribution_is_current());
+}
+
+#[test]
+fn a_negative_result_needs_no_attribution() {
+    // There is nothing of the provider's to credit in "we found nothing".
+    let cached = CachedLookup {
+        outcome: LookupOutcome::NotFound,
+        cached_at: 1_000,
+        upstream_unavailable: false,
+    };
+    assert!(cached.attribution_is_current());
+}
+
+#[test]
+fn clearing_provider_data_removes_the_attribution_with_it() {
+    let mut provider = Provider::new(FakeTransport {
+        allowance: Ok(Allowance { remaining: 10 }),
+        answers: vec![Ok(LookupOutcome::Matched(record()))],
+        lookups: 0,
+    });
+    provider.preflight(1).expect("allowance");
+    provider.lookup("NES", "abc", 100).expect("a lookup");
+    assert_eq!(provider.cached_entry_count(), 1);
+
+    provider.clear_provider_data();
+    assert_eq!(
+        provider.cached_entry_count(),
+        0,
+        "clearing must leave no provider-derived text behind, credit included"
+    );
 }

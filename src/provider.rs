@@ -95,6 +95,28 @@ pub enum LookupOutcome {
     NotFound,
 }
 
+/// Who supplied a record, and under which terms.
+///
+/// #29 requires attribution wherever provider data is shown, and #9 requires
+/// the terms it was obtained under to be recorded. Both live on the record
+/// rather than in configuration, because configuration describes the provider
+/// *now* and a cached record may have arrived a year ago under different terms.
+/// Attribution that silently re-labels old data with today's notice is not
+/// provenance, it is a guess.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Attribution {
+    /// The credit line displayed beside anything this record contributes.
+    pub notice: String,
+    /// The terms document in force when the record was retrieved.
+    pub terms_url: String,
+    /// Bumped by the project whenever the accepted terms change. A record
+    /// carrying an older value is not reused without review.
+    pub terms_version: u32,
+}
+
+/// The terms revision this build was written against.
+pub const ACCEPTED_TERMS_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRecord {
     pub provider_id: String,
@@ -104,6 +126,23 @@ pub struct ProviderRecord {
     /// Where this came from, shown next to anything it contributes.
     pub source_url: Option<String>,
     pub retrieved_at: i64,
+    /// Credit and terms provenance. Required — a record with no attribution
+    /// cannot be displayed, because displaying it would be using someone's data
+    /// without saying whose.
+    pub attribution: Attribution,
+}
+
+impl ProviderRecord {
+    /// Whether this record may be shown under the terms this build accepts.
+    ///
+    /// Fail-closed: a record retrieved under terms this build does not know
+    /// about is withheld rather than shown with today's notice pasted over it.
+    /// The cost is a lookup the user can repeat; the alternative is quietly
+    /// misattributing someone else's data.
+    pub fn may_be_displayed(&self) -> bool {
+        !self.attribution.notice.trim().is_empty()
+            && self.attribution.terms_version == ACCEPTED_TERMS_VERSION
+    }
 }
 
 /// The remaining allowance, as the provider reports it.
@@ -154,7 +193,21 @@ impl CachedLookup {
     }
 
     pub fn is_usable(&self, now: i64) -> bool {
-        !self.negative_result_expired(now)
+        !self.negative_result_expired(now) && self.attribution_is_current()
+    }
+
+    /// Whether every record here carries attribution this build accepts.
+    ///
+    /// A cached entry that predates a terms change is not usable, however fresh
+    /// it is. Freshness and permission are different questions.
+    pub fn attribution_is_current(&self) -> bool {
+        match &self.outcome {
+            LookupOutcome::Matched(record) => record.may_be_displayed(),
+            LookupOutcome::Suggestions(records) => {
+                records.iter().all(ProviderRecord::may_be_displayed)
+            }
+            LookupOutcome::NotFound => true,
+        }
     }
 }
 
@@ -282,9 +335,24 @@ pub const fn provider_artwork_may_reach_a_media_target() -> bool {
 /// the service. A recorded response would be provider content committed to the
 /// repository, which issue #29 forbids outright.
 pub mod wire {
+    use super::{ACCEPTED_TERMS_VERSION, Attribution};
+
     use super::{Allowance, LookupOutcome, ProviderFailure, ProviderRecord};
 
     /// Interprets an allowance response.
+    /// TheGamesDB's credit line and the terms it was read under.
+    ///
+    /// Stamped onto every record at parse time rather than added when a record
+    /// is displayed, so a cached record carries the terms in force when it was
+    /// actually retrieved.
+    pub fn thegamesdb_attribution() -> Attribution {
+        Attribution {
+            notice: "Metadata and artwork from TheGamesDB".to_owned(),
+            terms_url: "https://thegamesdb.net/about.php".to_owned(),
+            terms_version: ACCEPTED_TERMS_VERSION,
+        }
+    }
+
     pub fn parse_allowance(body: &str) -> Result<Allowance, ProviderFailure> {
         let value: serde_json::Value =
             serde_json::from_str(body).map_err(|_| ProviderFailure::MalformedResponse)?;
@@ -352,6 +420,7 @@ pub mod wire {
                     fields,
                     source_url: Some(format!("https://thegamesdb.net/game.php?id={id}")),
                     retrieved_at,
+                    attribution: thegamesdb_attribution(),
                 })
             })
             .collect();
