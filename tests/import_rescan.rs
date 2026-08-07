@@ -130,7 +130,13 @@ fn a_moved_input_is_matched_by_content_not_path() {
             .origin_observations(&imported.content_digest)
             .unwrap()
             .iter()
-            .any(|path| path.ends_with("NES/Tracers.nes")),
+            // Separator-agnostic: an Origin Observation records a *host*
+            // path, so it carries backslashes on Windows. That is correct —
+            // provenance points at the user's filesystem, not at a target.
+            .any(|path| {
+                let normalized = path.replace('\\', "/");
+                normalized.ends_with("NES/Tracers.nes")
+            }),
         "the new location is remembered"
     );
     assert_eq!(fixture.store.owned_object_count().unwrap(), 1);

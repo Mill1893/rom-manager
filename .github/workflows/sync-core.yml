@@ -53,7 +53,14 @@ jobs:
         run: |
           $out = "probe-report"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Get-ChildItem docs/research/windows-path-probes/*.ps1 | ForEach-Object {
+          $probes = "docs/research/windows-path-probes"
+          if (-not (Test-Path $probes)) {
+            "No probes on this branch." | Tee-Object -FilePath "$out/skipped.txt"
+            exit 0
+          }
+          Get-ChildItem "$probes/*.ps1" | ForEach-Object {
+            # Probes record what this host does; a probe that errors is itself
+            # a result, so its output is captured either way.
             & powershell -NoProfile -ExecutionPolicy Bypass -File $_.FullName *>&1 |
               Tee-Object -FilePath "$out/$($_.BaseName).txt"
           }
