@@ -8,7 +8,7 @@ Evidence for [Certify the Windows sync-core milestone](https://github.com/Mill18
 
 CI is green on both hosts and both packaging jobs succeed, so the automated half of this gate is now evidenced rather than promised. What remains is physical: no packaged build has been installed and run on a real Windows host, and no AYN Odin 3 validation has been performed. The ticket is explicit that fake-transport, CI, and diagnostic results must not be generalized into packaged-host or physical claims, so this report **records what is established and names what is not** rather than certifying the gate.
 
-The single blocking cause underneath most of it: **GitHub Actions has never executed on this repository.**
+The single remaining blocking cause is **access to physical hardware** — a Windows host to install on, and an AYN Odin 3 to sync to.
 
 ## The build this report describes
 
@@ -129,8 +129,7 @@ Not required here, and not claimed: a second unrelated Android device, Linux MTP
 
 - That anything works on a packaged Windows application.
 - That anything works on a physical device, over MTP or otherwise.
-- That the Windows confinement walk behaves at runtime as it does on Unix — it compiles and has never executed.
+- That the Windows confinement walk behaves *identically* to Unix. It now executes on a Windows CI host, which is real evidence, but a Server 2025 runner is not a user's desktop.
 - That reparse rejection holds for tags other than junctions.
-- That any CI result exists.
 - That the measured planning figure is the Windows reference-host threshold.
 - Resistance to a hostile same-privilege process, which is outside the stated threat model.
