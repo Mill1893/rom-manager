@@ -39,6 +39,7 @@ jobs:
           npm ci
           npm run typecheck
           npm test
+          npm run build
 
   # Host-behaviour probes: recorded as evidence, never gating. A Windows
   # servicing update that changes reserved-name or case-fold behaviour must not
@@ -88,6 +89,7 @@ jobs:
           npm ci
           npm run typecheck
           npm test
+          npm run build
       - name: Build the Windows target
         run: cargo build --release --target x86_64-pc-windows-msvc
       - name: Run the filesystem tracer against a real Windows volume
@@ -129,6 +131,7 @@ jobs:
           npm ci
           npm run typecheck
           npm test
+          npm run build
       - name: Build the release binary
         run: cargo build --release
       - name: Record bundled dependency licences
