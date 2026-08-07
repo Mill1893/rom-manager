@@ -70,11 +70,14 @@ the run where packaging hung for two minutes and failed.
 `scripts/fetch-bundler-tools.sh` fetches all six ahead of the build, with
 retries, verifying each against `packaging/bundler-tools.lock`, and hands the
 runtime to the plugin through `LDAI_RUNTIME_FILE`. A build that runs it first
-downloads nothing: observed on this branch, where `package-linux` emitted no
-bundler download at all and the only `Downloading` lines in the job log were
-cargo fetching crates. In CI the store is additionally restored from
-`actions/cache`; the cold path is the one that has been exercised, and a warm
-restore has not yet happened on a first run of a new lock file.
+downloads nothing: observed in `package-linux`, which emitted no bundler
+download at all — the only `Downloading` lines in the job log were cargo
+fetching crates.
+
+Both cache paths have now been exercised. A cold run reports
+`Cache not found for input keys: bundler-tools-Linux-<hash>` and fetches all
+six in about a second and a half; a warm one reports `Cache restored from key`
+and the fetch step prints six `(held)` lines, making no request at all.
 
 Two things worth knowing before changing this:
 

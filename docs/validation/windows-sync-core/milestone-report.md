@@ -22,8 +22,21 @@ The single remaining blocking cause is **access to physical hardware** — a Win
 | Generic profile identity | `generic-folder` revision 1, snapshot digest in `fixtures/profiles/generic-folder.rev1.sha256` |
 
 Both are published by CI as the `windows-unsigned-package` and
-`linux-appimage-inputs` artifacts. The installer's SHA-256 is
-`95167d8a64e56ab25dea872916ef02a8687cdcc399549258a4a9eb0ee6c64014`.
+`linux-appimage-inputs` artifacts.
+
+**The row above is a transcription, and it has gone stale.** It names commit
+`7bb4cfc`, which is many merges old, and a SHA-256 pasted in by hand on the day
+it was read. A digest copied once is evidence about a build that existed that
+afternoon; it says nothing about the artefact a reader is holding, and there is
+no way to tell from this page which of the two you have.
+
+So it is no longer the source. Each packaging job now writes
+`build-identity-linux.md` or `build-identity-windows.md` into its own artifact
+via `scripts/record-build-identity.sh`, recording the commit, ref, workflow run
+and attempt, runner image, toolchain versions, and a size and SHA-256 for every
+file it produced — read from the build rather than typed into a document
+afterwards. **Cite that file, not this table.** The table is kept as the record
+of what this report was assembled against.
 
 **No packaged build has been installed and run by a human.** Criterion 1 asks
 for evidence from the installed application, and producing an installer is not
