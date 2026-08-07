@@ -7,6 +7,7 @@ mod app;
 mod cache;
 mod combined;
 mod confined;
+pub mod containers;
 pub mod descriptors;
 mod domain;
 mod durable;
@@ -15,7 +16,9 @@ mod filesystems;
 pub mod formats;
 mod gamelist;
 mod library;
+pub mod manifest;
 mod merge;
+mod outcomes;
 mod paths;
 mod projection;
 mod provider;
@@ -36,8 +39,11 @@ pub use combined::{
     SplitReadiness, SyncStage, run_combined, split_readiness,
 };
 pub use confined::ConfinedRoot;
+pub use containers::{ContainerHeader, Format, validate_chd, validate_cso, validate_rvz};
 pub use descriptors::{
-    DescriptorError, MemberReference, membership_is_complete, parse_cue, parse_gdi, parse_m3u,
+    CueSheet, CueTrack, DescriptorError, Frames, Gdi, GdiRecord, MemberReference,
+    membership_is_complete, parse_cue, parse_cue_sheet, parse_gdi, parse_gdi_model, parse_m3u,
+    parse_m3u_for,
 };
 pub use domain::{
     Action, Approval, BlockReason, DeviceProfile, ManagedArtifactManifest, ManagedEvidence,
@@ -57,9 +63,11 @@ pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
 };
+pub use manifest::{LIMITS, Limits, MANIFEST_REVISION};
 pub use merge::{
     FieldOutcome, LedgerEntry, conflicts, merge_entry, merge_field, requires_user_decision,
 };
+pub use outcomes::{Diagnostic, Location, Measurement, Outcome, ReasonCode};
 pub use paths::AppPaths;
 pub use projection::{
     CalendarDate, EntryEligibility, MetadataProjection, PlayerCount, ReleaseFacts,

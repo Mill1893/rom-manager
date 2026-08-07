@@ -87,7 +87,7 @@ fn a_playlist_skips_comments_and_blank_lines() {
 }
 
 #[test]
-fn a_gdi_skips_its_leading_track_count() {
+fn a_gdi_reads_its_records_after_the_leading_track_count() {
     assert_eq!(
         names(parse_gdi(GDI).unwrap()),
         vec!["track01.bin", "track02.raw", "track03.bin"]
@@ -100,7 +100,7 @@ fn oversized_input_is_refused_before_it_is_parsed() {
     let huge = format!("FILE \"a.bin\" BINARY\n{}", "REM padding\n".repeat(500_000));
     assert!(matches!(parse_cue(&huge), Err(DescriptorError::TooLarge)));
 
-    let many_lines = "REM x\n".repeat(5_000);
+    let many_lines = "REM x\n".repeat(10_001);
     assert!(matches!(
         parse_cue(&many_lines),
         Err(DescriptorError::TooManyEntries)
@@ -109,7 +109,7 @@ fn oversized_input_is_refused_before_it_is_parsed() {
 
 #[test]
 fn too_many_members_is_refused() {
-    let many = "FILE \"t.bin\" BINARY\n".repeat(600);
+    let many = "FILE \"t.bin\" BINARY\n".repeat(1_100);
     assert!(matches!(
         parse_cue(&many),
         Err(DescriptorError::TooManyEntries)
