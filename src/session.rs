@@ -75,7 +75,12 @@ impl From<SyncError> for SessionError {
     }
 }
 
-/// Connects a Media Target identifier to a transport.
+/// Opens a transport at a **locator** — for the filesystem, a directory path.
+///
+/// Keyed by locator rather than by target identity on purpose. A Media Target's
+/// identity lives in its marker and never changes; the locator is merely the
+/// last place it was seen. Connecting by identity would be circular, because
+/// reading the marker is how the identity is discovered in the first place.
 ///
 /// Supplied by the host so the session stays testable: the suites drive it with
 /// a fake transport and the desktop application supplies a real one.
@@ -101,13 +106,8 @@ pub struct Session<T: Transport> {
 }
 
 impl<T: Transport> Session<T> {
-    pub fn new(
-        store: Store,
-        connect: Connect<T>,
-        packs: Vec<RomPackChoice>,
-        targets: Vec<MediaTargetChoice>,
-    ) -> Self {
-        Self {
+    pub fn new(store: Store, connect: Connect<T>) -> Self {
+        let mut session = Self {
             store,
             connect,
             core: None,
@@ -119,10 +119,106 @@ impl<T: Transport> Session<T> {
             outcome: None,
             recovery_disclosure: Vec::new(),
             cancellation: CancellationToken::default(),
-            packs,
-            targets,
+            packs: Vec::new(),
+            targets: Vec::new(),
             desired: Vec::new(),
+        };
+        // Catalogues come from durable state, not from the caller. A session
+        // constructed with a list handed in would show whatever the host
+        // believed rather than what the user actually nominated, and the two
+        // diverge the moment anything is added in another window.
+        let _ = session.reload_catalogues();
+        session
+    }
+
+    /// Re-reads the ROM Pack and Media Target catalogues from durable state.
+    ///
+    /// Connectedness is decided by *trying* the last known locator. A target
+    /// whose card is unplugged is listed and marked disconnected rather than
+    /// hidden — the user nominated it, and its absence is information.
+    pub fn reload_catalogues(&mut self) -> Result<(), SessionError> {
+        self.packs = self
+            .store
+            .rom_packs()?
+            .into_iter()
+            .map(|row| RomPackChoice {
+                // An untitled pack shows its identifier. Worse than a name, and
+                // better than a blank row the user cannot tell apart.
+                title: row.title.unwrap_or_else(|| row.rom_pack_id.clone()),
+                rom_pack_id: row.rom_pack_id,
+                revision: row.revision,
+                rom_set_count: row.rom_set_count,
+            })
+            .collect();
+
+        let known = self.store.media_targets()?;
+        let mut targets = Vec::with_capacity(known.len());
+        for row in known {
+            let connected = match row.last_locator.as_deref() {
+                Some(locator) => (self.connect)(locator).is_ok(),
+                None => false,
+            };
+            targets.push(MediaTargetChoice {
+                label: row.label.unwrap_or_else(|| row.target_id.clone()),
+                target_id: row.target_id,
+                binding_locator: row.last_locator,
+                connected,
+            });
         }
+        self.targets = targets;
+        Ok(())
+    }
+
+    /// Remembers a folder to look in for ROMs. Scanned only when asked.
+    pub fn nominate_import_folder(&mut self, path: &str) -> Result<i64, SessionError> {
+        Ok(self.store.remember_import_folder(path, None)?)
+    }
+
+    pub fn import_folders(&self) -> Result<Vec<(i64, String)>, SessionError> {
+        Ok(self.store.import_folders()?)
+    }
+
+    /// Remembers a directory as a Media Target.
+    ///
+    /// If it already carries a marker, that marker's identity wins — this is
+    /// the same target the application managed before, whatever drive letter it
+    /// arrived on this time. Only a directory with no marker gets a new
+    /// identity, and even then nothing is written to it here: nomination
+    /// records intent, and [`Self::initialize_target`] is what claims the
+    /// device.
+    pub fn nominate_media_target(
+        &mut self,
+        locator: &str,
+        label: &str,
+    ) -> Result<MediaTargetChoice, SessionError> {
+        let mut transport = (self.connect)(locator).map_err(SessionError::Transport)?;
+        let capabilities = transport.capabilities();
+        let existing = transport
+            .marker()
+            .map_err(|error| SessionError::Transport(error.to_string()))?;
+
+        let target_id = match existing {
+            Some(marker) => marker.target_id,
+            None => mint_target_id(locator),
+        };
+
+        self.store.upsert_target(&target_id, 1)?;
+        self.store
+            .record_binding(&target_id, locator, &capabilities, now())?;
+        self.store.set_target_label(&target_id, label)?;
+        self.reload_catalogues()?;
+
+        self.targets
+            .iter()
+            .find(|target| target.target_id == target_id)
+            .cloned()
+            .ok_or(SessionError::UnknownMediaTarget)
+    }
+
+    /// Replaces how transports are opened. Exists for tests that need a device
+    /// to become unreachable partway through.
+    pub fn set_connect(&mut self, connect: Connect<T>) {
+        self.connect = connect;
     }
 
     /// What a chosen ROM Pack wants on a target. Set by the host.
@@ -210,7 +306,11 @@ impl<T: Transport> Session<T> {
             return Err(SessionError::NotConnected);
         }
 
-        let transport = (self.connect)(target_id).map_err(SessionError::Transport)?;
+        let locator = choice
+            .binding_locator
+            .clone()
+            .ok_or(SessionError::NotConnected)?;
+        let transport = (self.connect)(&locator).map_err(SessionError::Transport)?;
         let profile = crate::DeviceProfile::generic_nes();
         let mut core = SyncCore::new(
             transport,
@@ -388,6 +488,18 @@ impl<T: Transport> Session<T> {
         self.step = WizardStep::SelectRomPack;
         Ok(self.snapshot())
     }
+}
+
+/// A fresh Media Target identity for a directory with no marker.
+///
+/// Derived from the locator and the clock so two cards nominated from the same
+/// mount point at different times are different targets. It is written into the
+/// marker at initialization, and from then on the marker is the identity — this
+/// value is never re-derived, so a later change of locator cannot change who
+/// the target is.
+fn mint_target_id(locator: &str) -> String {
+    let seed = format!("{locator}:{}", now());
+    format!("target-{}", &crate::sha256(seed.as_bytes())[..16])
 }
 
 fn now() -> i64 {

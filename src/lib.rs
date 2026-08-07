@@ -94,7 +94,7 @@ pub use retire::{
     withdraw_ineligible_field,
 };
 pub use session::{Connect, Session, SessionError};
-pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
+pub use store::{OperationState, PackRow, SCHEMA_VERSION, Store, StoreError, TargetRow};
 pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,
     InventoryArtifact, Transport, TransportCapabilities, TransportError,

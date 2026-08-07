@@ -179,7 +179,19 @@ function SelectRomPack({
     <section aria-labelledby="rom-pack-heading">
       <h2 id="rom-pack-heading">Choose what to sync</h2>
       {chosen === null ? (
-        <p>No ROM Pack is selected.</p>
+        <>
+          <p>
+            No ROM Packs yet. Add a folder to look for ROMs in — nothing is read
+            until you ask for a scan.
+          </p>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Choosing", commands.pickImportFolder)}
+          >
+            Add a ROM folder…
+          </button>
+        </>
       ) : (
         <p>
           <strong>{chosen.title}</strong> — {chosen.romSetCount} ROM Set
@@ -217,7 +229,16 @@ function SelectMediaTarget({
     <section aria-labelledby="target-heading">
       <h2 id="target-heading">Choose a device</h2>
       {chosen === null ? (
-        <p>No device is selected.</p>
+        <>
+          <p>No devices yet. Choose the card or drive you sync to.</p>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Choosing", commands.pickMediaTarget)}
+          >
+            Add a device…
+          </button>
+        </>
       ) : (
         <p>
           <strong>{chosen.label}</strong>

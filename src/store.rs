@@ -32,12 +32,36 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (3, include_str!("../migrations/0003_library_storage.sql")),
     (4, include_str!("../migrations/0004_source_containers.sql")),
     (5, include_str!("../migrations/0005_import_folders.sql")),
+    (6, include_str!("../migrations/0006_nominations.sql")),
 ];
 
 /// The schema version this build expects. A store opened at a lower version is
 /// migrated up; one opened at a *higher* version was written by a newer build
 /// and is refused rather than guessed at.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
+
+/// A Media Target as durable state knows it.
+///
+/// `last_locator` is where it was most recently seen, deliberately separate
+/// from `target_id`. Identity lives in the device's marker and never changes; a
+/// card that comes back on a different drive letter is the same target, and the
+/// locator is only where the application tries to reach it first.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TargetRow {
+    pub target_id: String,
+    /// `None` for a target adopted from a marker nobody has named yet.
+    pub label: Option<String>,
+    pub last_locator: Option<String>,
+}
+
+/// A ROM Pack revision as durable state knows it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackRow {
+    pub rom_pack_id: String,
+    pub revision: u32,
+    pub title: Option<String>,
+    pub rom_set_count: usize,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -170,6 +194,72 @@ impl Store {
             params![target_id, locator, capabilities, observed_at],
         )?;
         Ok(())
+    }
+
+    /// Names a Media Target for display. Identity is unaffected.
+    pub fn set_target_label(&self, target_id: &str, label: &str) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE media_target SET label = ?2 WHERE target_id = ?1",
+            params![target_id, label],
+        )?;
+        Ok(())
+    }
+
+    /// Every known Media Target.
+    pub fn media_targets(&self) -> Result<Vec<TargetRow>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT t.target_id, t.label,
+                    (SELECT b.locator FROM transport_binding b
+                      WHERE b.target_id = t.target_id
+                      ORDER BY b.observed_at DESC LIMIT 1)
+               FROM media_target t
+              ORDER BY COALESCE(t.label, t.target_id)",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(TargetRow {
+                    target_id: row.get(0)?,
+                    label: row.get(1)?,
+                    last_locator: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn set_pack_title(
+        &self,
+        rom_pack_id: &str,
+        revision: u32,
+        title: &str,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE rom_pack SET title = ?3 WHERE rom_pack_id = ?1 AND revision = ?2",
+            params![rom_pack_id, revision, title],
+        )?;
+        Ok(())
+    }
+
+    /// Every known ROM Pack revision.
+    pub fn rom_packs(&self) -> Result<Vec<PackRow>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT p.rom_pack_id, p.revision, p.title,
+                    (SELECT COUNT(*) FROM rom_pack_selection s
+                      WHERE s.rom_pack_id = p.rom_pack_id AND s.revision = p.revision)
+               FROM rom_pack p
+              ORDER BY COALESCE(p.title, p.rom_pack_id), p.revision",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(PackRow {
+                    rom_pack_id: row.get(0)?,
+                    revision: row.get::<_, i64>(1)? as u32,
+                    title: row.get(2)?,
+                    rom_set_count: row.get::<_, i64>(3)? as usize,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     pub fn bindings_for(&self, target_id: &str) -> Result<Vec<String>, StoreError> {

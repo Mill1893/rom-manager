@@ -20,6 +20,10 @@ serde_json = "1"
 # No plugins. The webview gets events and a window title; it cannot reach the
 # filesystem, a shell, SQL, or the network through Tauri.
 tauri = { version = "2", features = ["devtools"] }
+# A native folder picker, used from the Rust side only. Not a Tauri plugin:
+# the webview cannot invoke it, and the path it returns never crosses the
+# boundary -- the command that calls it takes no arguments and returns state.
+rfd = "0.15"
 
 [[bin]]
 name = "rom-manager"

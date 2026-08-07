@@ -144,6 +144,17 @@ export interface Commands {
   selectRomPack(romPackId: string, revision: number): Promise<Snapshot>;
   selectMediaTarget(targetId: string): Promise<Snapshot>;
   /**
+   * Opens the operating system's own folder picker and remembers the choice.
+   *
+   * Takes no arguments, deliberately. The frontend says "the user wants to add
+   * one"; the OS picker decides which directory. That is how this boundary can
+   * have a file picker at all without a path ever crossing it — cancelling
+   * simply returns the unchanged state.
+   */
+  pickMediaTarget(): Promise<Snapshot>;
+  /** As above, for a folder to look for ROMs in. Remembering is not scanning. */
+  pickImportFolder(): Promise<Snapshot>;
+  /**
    * Claims a device by writing its marker. Separate and confirmed, because
    * this is how the application takes responsibility for a device's contents —
    * a user who plugged in the wrong card should get a question, not a claim.

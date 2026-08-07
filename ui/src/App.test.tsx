@@ -224,3 +224,34 @@ describe("state pushed by the core", () => {
     expect(screen.queryByRole("heading", { name: /choose what to sync/i })).toBeNull();
   });
 });
+
+describe("an empty catalogue", () => {
+  it("offers to add a ROM folder rather than showing an empty list", async () => {
+    // A wizard with nothing to choose and no way to add anything is a dead end,
+    // which is exactly what shipping the empty catalogues without this would be.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectRomPack" }, { romPack: null }));
+
+    render(<App />);
+    const add = await screen.findByRole("button", { name: /add a rom folder/i });
+
+    await userEvent.click(add);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_import_folder", undefined));
+  });
+
+  it("offers to add a device, and sends no path when doing so", async () => {
+    // The command takes no arguments on purpose: the OS picker decides which
+    // directory, so a path never crosses this boundary.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectMediaTarget" }, { mediaTarget: null }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /add a device/i }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_media_target", undefined));
+    const pathish = invoke.mock.calls.filter(([, payload]) =>
+      JSON.stringify(payload ?? {}).match(/[/\\]/),
+    );
+    expect(pathish).toHaveLength(0);
+  });
+});
