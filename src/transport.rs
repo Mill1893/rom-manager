@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -11,10 +10,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ManagedArtifactManifest, RelativePath, TargetMarker, sha256};
-
-const MARKER_PATH: &str = "ROMManager/target.json";
-const MANIFEST_PATH: &str = "ROMManager/manifest.json";
+use crate::{
+    MANIFEST_PATH, MARKER_PATH, ManagedArtifactManifest, RelativePath, TargetMarker, sha256,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TransportCapabilities {
@@ -46,15 +44,58 @@ impl TransportCapabilities {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InventoryArtifact {
+    pub kind: EntryKind,
     pub size: u64,
     pub sha256: String,
+}
+
+/// Whether an observed entry is a file or a directory. A directory occupying a
+/// desired file path is a distinct condition from a file occupying it, and is
+/// never cleared to make room.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryKind {
+    File,
+    Directory,
+}
+
+impl InventoryArtifact {
+    pub fn file(size: u64, sha256: impl Into<String>) -> Self {
+        Self {
+            kind: EntryKind::File,
+            size,
+            sha256: sha256.into(),
+        }
+    }
+
+    /// Directories carry no content identity; they exist in the inventory so
+    /// planning can see that a desired path is occupied by one.
+    pub fn directory() -> Self {
+        Self {
+            kind: EntryKind::Directory,
+            size: 0,
+            sha256: String::new(),
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.kind == EntryKind::Directory
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Inventory {
     pub generation: u64,
-    pub free_bytes: u64,
+    /// Free space where the binding reports it, and `None` where it does not.
+    /// An unreported capacity is never estimated or defaulted — it is the
+    /// condition that blocks any plan containing an addition.
+    pub free_bytes: Option<u64>,
     pub artifacts: BTreeMap<RelativePath, InventoryArtifact>,
+    /// Names observed on the target that the namespace cannot represent — an
+    /// NFD spelling, a trailing dot, a reserved basename. Reported verbatim so
+    /// planning can preserve and disclose them. A transport never repairs a
+    /// name, and an unrepresentable one is not an I/O error.
+    pub unrepresentable: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -127,6 +168,8 @@ pub struct FakeTransport {
     marker: Option<TargetMarker>,
     manifest: Option<ManagedArtifactManifest>,
     artifacts: BTreeMap<RelativePath, Vec<u8>>,
+    directories: std::collections::BTreeSet<RelativePath>,
+    unrepresentable: Vec<String>,
     capacity: u64,
     generation: u64,
     fault: Option<FakeFault>,
@@ -140,14 +183,39 @@ impl FakeTransport {
             marker: None,
             manifest: None,
             artifacts: BTreeMap::new(),
+            directories: std::collections::BTreeSet::new(),
+            unrepresentable: Vec::new(),
             capacity,
             generation: 0,
             fault: None,
         }
     }
 
+    /// Presents a binding whose observed capabilities differ from the default,
+    /// so per-action gating can be exercised without a real device.
+    pub fn with_capabilities(mut self, capabilities: TransportCapabilities) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
+
     pub fn with_artifact(mut self, path: RelativePath, bytes: Vec<u8>) -> Self {
         self.artifacts.insert(path, bytes);
+        self.generation += 1;
+        self
+    }
+
+    /// Places a directory at `path`, so a desired file path can be observed as
+    /// occupied by one.
+    pub fn with_directory(mut self, path: RelativePath) -> Self {
+        self.directories.insert(path);
+        self.generation += 1;
+        self
+    }
+
+    /// Plants a name the namespace cannot represent, as a real target could
+    /// already hold — an NFD spelling, a trailing dot, a reserved basename.
+    pub fn with_unrepresentable(mut self, name: impl Into<String>) -> Self {
+        self.unrepresentable.push(name.into());
         self.generation += 1;
         self
     }
@@ -229,19 +297,21 @@ impl Transport for FakeTransport {
             .sum::<u64>();
         Ok(Inventory {
             generation: self.generation,
-            free_bytes: self.capacity.saturating_sub(used),
+            free_bytes: self
+                .capabilities
+                .reports_capacity
+                .then(|| self.capacity.saturating_sub(used)),
+            unrepresentable: self.unrepresentable.clone(),
             artifacts: self
-                .artifacts
+                .directories
                 .iter()
-                .map(|(path, bytes)| {
+                .map(|path| (path.clone(), InventoryArtifact::directory()))
+                .chain(self.artifacts.iter().map(|(path, bytes)| {
                     (
                         path.clone(),
-                        InventoryArtifact {
-                            size: bytes.len() as u64,
-                            sha256: sha256(bytes),
-                        },
+                        InventoryArtifact::file(bytes.len() as u64, sha256(bytes)),
                     )
-                })
+                }))
                 .collect(),
         })
     }
@@ -379,10 +449,24 @@ impl FilesystemTransport {
         Ok(())
     }
 
+    /// Path relative to the target root, or `None` for the marker area.
+    fn relative(&self, path: &Path) -> Result<Option<String>, TransportError> {
+        let relative = path
+            .strip_prefix(&self.root)
+            .map_err(|error| TransportError::Io(error.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative == MARKER_PATH || relative == MANIFEST_PATH {
+            return Ok(None);
+        }
+        Ok(Some(relative))
+    }
+
     fn visit_files(
         &self,
         directory: &Path,
         artifacts: &mut BTreeMap<RelativePath, InventoryArtifact>,
+        unrepresentable: &mut Vec<String>,
     ) -> Result<(), TransportError> {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
@@ -395,7 +479,15 @@ impl FilesystemTransport {
                 )));
             }
             if file_type.is_dir() {
-                self.visit_files(&path, artifacts)?;
+                if let Some(relative) = self.relative(&path)? {
+                    match RelativePath::new(relative.clone()) {
+                        Ok(relative) => {
+                            artifacts.insert(relative, InventoryArtifact::directory());
+                        }
+                        Err(_) => unrepresentable.push(relative),
+                    }
+                }
+                self.visit_files(&path, artifacts, unrepresentable)?;
             } else {
                 let relative = path
                     .strip_prefix(&self.root)
@@ -405,19 +497,30 @@ impl FilesystemTransport {
                 if relative == MARKER_PATH || relative == MANIFEST_PATH {
                     continue;
                 }
-                let path = RelativePath::new(relative)
-                    .map_err(|error| TransportError::Io(error.to_string()))?;
+                // An unrepresentable name is observed content, not an I/O
+                // error. Failing here would make one stray NFD or trailing-dot
+                // file render the whole Media Target unusable, when the rule is
+                // to preserve and disclose it.
+                let Ok(path) = RelativePath::new(relative.clone()) else {
+                    unrepresentable.push(relative);
+                    continue;
+                };
                 let bytes = fs::read(entry.path())?;
                 artifacts.insert(
                     path,
-                    InventoryArtifact {
-                        size: bytes.len() as u64,
-                        sha256: sha256(&bytes),
-                    },
+                    InventoryArtifact::file(bytes.len() as u64, sha256(&bytes)),
                 );
             }
         }
         Ok(())
+    }
+}
+
+impl FilesystemTransport {
+    /// A confined view of the target root. Opened per operation; the handles it
+    /// retains live for the walk.
+    fn confined(&self) -> Result<crate::ConfinedRoot, TransportError> {
+        Ok(crate::ConfinedRoot::open(&self.root)?)
     }
 }
 
@@ -448,11 +551,14 @@ impl Transport for FilesystemTransport {
 
     fn inventory(&mut self) -> Result<Inventory, TransportError> {
         let mut artifacts = BTreeMap::new();
-        self.visit_files(&self.root, &mut artifacts)?;
-        let free_bytes = fs2::available_space(&self.root)?;
+        let mut unrepresentable = Vec::new();
+        self.visit_files(&self.root, &mut artifacts, &mut unrepresentable)?;
+        unrepresentable.sort();
+        let free_bytes = Some(fs2::available_space(&self.root)?);
         let fingerprint = artifacts
             .iter()
             .map(|(path, artifact)| format!("{path}\0{}\0{}\n", artifact.size, artifact.sha256))
+            .chain(unrepresentable.iter().map(|name| format!("{name}\0?\n")))
             .collect::<String>();
         let generation = u64::from_str_radix(&sha256(fingerprint.as_bytes())[..16], 16)
             .expect("SHA-256 prefix is hexadecimal");
@@ -460,11 +566,12 @@ impl Transport for FilesystemTransport {
             generation,
             free_bytes,
             artifacts,
+            unrepresentable,
         })
     }
 
     fn read(&mut self, path: &RelativePath) -> Result<Vec<u8>, TransportError> {
-        Ok(fs::read(self.absolute(path)?)?)
+        Ok(self.confined()?.read(path)?)
     }
 
     fn write_new(
@@ -476,35 +583,32 @@ impl Transport for FilesystemTransport {
         if cancellation.is_cancelled() {
             return Err(TransportError::Cancelled);
         }
-        let absolute = self.absolute(path)?;
-        if absolute.exists() {
-            return Err(TransportError::Conflict(path.clone()));
-        }
-        if let Some(parent) = absolute.parent() {
-            fs::create_dir_all(parent)?;
-            let parent = fs::canonicalize(parent)?;
-            if !parent.starts_with(&self.root) {
-                return Err(TransportError::Unsupported(format!(
-                    "path escapes the Media Target: {path}"
-                )));
+        // The confined walk resolves each segment without following
+        // indirection, and its atomic create-if-absent is what proves the name
+        // was free. A canonicalize-then-prefix-check would be a different
+        // operation from the open that follows it.
+        match self.confined()?.write_new(path, bytes) {
+            Ok(()) => {
+                self.generation += 1;
+                Ok(())
             }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(TransportError::Conflict(path.clone()))
+            }
+            Err(error) => Err(error.into()),
         }
-        let mut file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(absolute)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        self.generation += 1;
-        Ok(())
     }
 
     fn delete_leaf(&mut self, path: &RelativePath) -> Result<(), TransportError> {
-        let absolute = self.absolute(path)?;
-        if absolute.is_dir() {
-            return Err(TransportError::Unsupported("recursive deletion".into()));
+        let confined = self.confined()?;
+        // Reparse rejection says nothing about hard links: a second name means
+        // the bytes are reachable from somewhere this application cannot see.
+        if confined.link_count(path)? > 1 {
+            return Err(TransportError::Unsupported(format!(
+                "{path} has more than one name"
+            )));
         }
-        fs::remove_file(absolute)?;
+        confined.delete_leaf(path)?;
         self.generation += 1;
         Ok(())
     }
