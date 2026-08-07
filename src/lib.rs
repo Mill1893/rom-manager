@@ -27,6 +27,7 @@ mod publish;
 mod retire;
 mod store;
 mod transport;
+pub mod worker;
 mod workflow;
 mod wpd;
 
