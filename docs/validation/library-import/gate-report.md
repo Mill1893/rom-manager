@@ -4,9 +4,20 @@ Evidence for [Certify the durable Library import gate](https://github.com/Mill18
 
 ## Disposition
 
-**Blocked on CI only.** Every behavioural criterion for this gate is implemented and covered by automated tests that pass locally. Unlike the [Windows sync-core gate](../windows-sync-core/milestone-report.md), nothing here needs a device, a packaged installer, or physical hardware — the gate is Library import into app-owned storage, and a filesystem is the only environment it requires.
+**Evidenced.** Every behavioural criterion for this gate is implemented and covered by automated tests. Unlike the [Windows sync-core gate](../windows-sync-core/milestone-report.md), nothing here needs a device, a packaged installer, or physical hardware — the gate is Library import into app-owned storage, and a filesystem is the only environment it requires.
 
-What it does not have is a CI result, because **GitHub Actions has never executed on this repository**. That is the single outstanding item.
+**Superseded on 2026-08-07.** This section previously read "Blocked on CI only", because GitHub Actions had never executed on this repository — `actions/runs` reported zero across every branch. That is no longer true. CI runs on every push and is green on both hosts:
+
+| Evidence | Value |
+| --- | --- |
+| Run | [`31221804858`](https://github.com/Mill1893/rom-manager/actions/runs/31221804858) on `main` at `af857fb` |
+| Jobs | `test (ubuntu-latest)`, `test (windows-latest)`, `host-behaviour`, `package-linux`, `package-windows` — all green |
+| Rust tests | 513 on Linux, 503 natively on Windows Server 2025 |
+| UI tests | 62 across 6 files |
+
+The ten tests that do not run on Windows are gated `cfg(unix)` because they need Unix symlink semantics: the whole of `tests/confinement.rs`, two cases in `tests/import_rescan.rs`, and one in `tests/sync_core.rs`. They are skipped there, not failing.
+
+The single outstanding item named by this report is therefore closed. Nothing else about the gate changed — the criteria below were already met when it was written.
 
 ## Schema and fixtures
 
