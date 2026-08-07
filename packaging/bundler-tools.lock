@@ -3,9 +3,11 @@
 # Bundling an AppImage is not a hermetic operation. Tauri's bundler downloads
 # linuxdeploy and its plugins on first use, and linuxdeploy's own AppImage
 # plugin then downloads the AppImage type-2 runtime from a *third* repository.
-# Six files in total, from three hosts, none of them pinned upstream: two come
-# from a `master` branch and three from a `continuous` tag, which means the
-# bytes behind those URLs can change without any version number changing.
+# Six files in total, from three hosts. Four carry no upstream version at all —
+# two from a `master` branch and two from a `continuous` tag — so the bytes
+# behind them can change with nothing to notice it by. The other two sit behind
+# release tags, which is better but not a guarantee: the `linuxdeploy` tag is
+# re-rollable in place, and its asset last moved in 2024.
 #
 # This file records the bytes we actually built against. `fetch-bundler-tools.sh`
 # fetches each entry, verifies it against the digest here, and places it where

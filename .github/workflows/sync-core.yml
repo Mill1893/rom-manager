@@ -92,12 +92,19 @@ jobs:
           npm run build
       - name: Build the Windows target
         run: cargo build --release --target x86_64-pc-windows-msvc
-      # The NSIS side has the same shape as the AppImage side but a much
-      # smaller surface: one plugin DLL, which Tauri pins by version and checks
-      # by hash. Caching its tool directory keeps a warm run off the network
-      # entirely — this download has previously returned HTTP 500. A cold run
-      # still fetches it; Tauri does that itself and its retry behaviour is not
-      # ours to set.
+      # The NSIS side has the same shape as the AppImage side but a much smaller
+      # surface: one plugin DLL, which Tauri already pins by version and checks
+      # by hash. Caching its tool directory means a restored run does not
+      # re-request it — this download has previously returned HTTP 500. A cold
+      # run still fetches, and Tauri does that itself, so its retry behaviour is
+      # not ours to set. That is the honest limit of this step: it narrows the
+      # window rather than closing it, and unlike the Linux job it has not been
+      # observed making a build network-free.
+      #
+      # The key is a proxy, not a precise one. What decides the DLL is the
+      # bundler version inside @tauri-apps/cli, so the lock file that pins the
+      # CLI is the closest thing available — at the cost of an unrelated
+      # frontend bump also evicting it.
       - name: Restore Tauri's NSIS tooling
         uses: actions/cache@v4
         with:
@@ -170,14 +177,13 @@ jobs:
       # output, and a packaging failure reads only `failed to run linuxdeploy`
       # with no indication of which of its six downloads or twenty steps went
       # wrong. That is how this job stayed unexplained through two failures.
+      # LDAI_RUNTIME_FILE points the AppImage plugin at the runtime it would
+      # otherwise fetch itself. The fetch step exports it through $GITHUB_ENV
+      # rather than the path being written out again here, which would be a
+      # second copy of a location the script decides — and the wrong one
+      # wherever XDG_CACHE_HOME is set.
       - name: Bundle the AppImage
-        run: |
-          # linuxdeploy's AppImage plugin fetches the type-2 runtime itself, so
-          # Tauri's cache never sees it and it is re-downloaded on every build
-          # unless it is handed one. Set here rather than in `env:`, which does
-          # not expand `~` or `$HOME`.
-          export LDAI_RUNTIME_FILE="$HOME/.cache/rom-manager-bundler/runtime-x86_64"
-          npx --prefix ui tauri build --bundles appimage --verbose
+        run: npx --prefix ui tauri build --bundles appimage --verbose
       - name: Record bundled dependency licences
         run: |
           cargo tree --edges normal --prefix none --format '{p} {l}' \

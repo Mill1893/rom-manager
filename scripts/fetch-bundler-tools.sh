@@ -64,7 +64,10 @@ fetch() {
     fi
     rm -f "$dest.partial"
     echo "  attempt $attempt failed" >&2
-    sleep $(( attempt * 5 ))
+    # No wait after the last one; nothing follows it.
+    if [[ "$attempt" -lt 10 ]]; then
+      sleep $(( attempt * 5 ))
+    fi
   done
   return 1
 }
@@ -109,7 +112,7 @@ while read -r kind name want url; do
     REPINNED+=("$kind $name $got $url")
     if [[ "$got" == "$want" ]]; then echo "         unchanged"; else echo "         $want -> $got"; fi
   elif [[ "$got" != "$want" ]]; then
-    # Deliberately fatal. Three of these URLs track a moving branch or tag, so
+    # Deliberately fatal. Four of these URLs track a moving branch or tag, so
     # a mismatch means the bytes in the release path changed without notice.
     # That is a thing to read a changelog about, not to build on top of.
     echo "MISMATCH $name" >&2
@@ -127,11 +130,22 @@ while read -r kind name want url; do
   [[ "$kind" == tauri ]] && install -m 0755 "$held" "$TAURI_CACHE/$name"
 done < "$LOCK"
 
-if [[ -n "$REPIN" && ${#REPINNED[@]} -gt 0 ]]; then
+if [[ -n "$REPIN" ]]; then
+  # Only ever rewrite from a complete set. The rewrite is built from what was
+  # fetched, so re-pinning through a transient failure would drop that tool
+  # from the lock file entirely — a silent deletion, in the file whose whole
+  # job is to say what the release path is allowed to use.
+  if [[ "$STATUS" -ne 0 ]]; then
+    echo >&2
+    echo "not re-pinning: ${#REPINNED[@]} of $(grep -cvE '^[[:space:]]*(#|$)' "$LOCK") entries fetched." >&2
+    echo "Rewriting now would delete the ones that failed. Fix the fetch and retry." >&2
+    exit 1
+  fi
   # Rewrite only the entry lines; the commentary above them is the part that
-  # explains why this file exists, so it is preserved verbatim.
+  # explains why this file exists, so it is preserved verbatim. `|| true`
+  # because grep reports "no matches" as failure, which is not one here.
   {
-    grep -E '^[[:space:]]*(#|$)' "$LOCK"
+    grep -E '^[[:space:]]*(#|$)' "$LOCK" || true
     printf '%s\n' "${REPINNED[@]}"
   } > "$LOCK.new"
   mv "$LOCK.new" "$LOCK"
@@ -144,6 +158,13 @@ if [[ "$STATUS" -ne 0 ]]; then
   echo >&2
   echo "bundler tools are not ready; packaging would fall back to downloading them" >&2
   exit "$STATUS"
+fi
+
+# In Actions, set it rather than describe it. The workflow spelling the path
+# out itself would be a second copy of a location this script already decides —
+# and it would be the wrong copy anywhere XDG_CACHE_HOME is set.
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "LDAI_RUNTIME_FILE=$STORE/runtime-x86_64" >> "$GITHUB_ENV"
 fi
 
 echo
