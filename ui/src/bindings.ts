@@ -155,6 +155,13 @@ export interface Commands {
   /** As above, for a folder to look for ROMs in. Remembering is not scanning. */
   pickImportFolder(): Promise<Snapshot>;
   /**
+   * Reads every remembered folder and gathers what it finds into ROM Packs.
+   *
+   * Explicit, and separate from remembering: the application never walks the
+   * user's disks on its own schedule.
+   */
+  scanImportFolders(): Promise<Snapshot>;
+  /**
    * Claims a device by writing its marker. Separate and confirmed, because
    * this is how the application takes responsibility for a device's contents —
    * a user who plugged in the wrong card should get a question, not a claim.

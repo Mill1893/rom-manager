@@ -73,6 +73,7 @@ export const commands: Commands = {
   selectMediaTarget: (targetId) => call("select_media_target", { targetId }),
   pickMediaTarget: () => call("pick_media_target"),
   pickImportFolder: () => call("pick_import_folder"),
+  scanImportFolders: () => call("scan_import_folders"),
   initializeTarget: (confirmed) => call("initialize_target", { confirmed }),
   refreshTarget: () => call("refresh_target"),
   buildPlan: () => call("build_plan"),

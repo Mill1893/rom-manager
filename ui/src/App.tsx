@@ -191,6 +191,13 @@ function SelectRomPack({
           >
             Add a ROM folder…
           </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Scanning", commands.scanImportFolders)}
+          >
+            Scan for ROMs
+          </button>
         </>
       ) : (
         <p>

@@ -203,6 +203,29 @@ impl<T: Transport> Session<T> {
         Ok(report)
     }
 
+    /// Scans every remembered folder.
+    ///
+    /// One command rather than one per folder, because "look for my games now"
+    /// is the whole of the user's intention and the boundary stays narrower for
+    /// it — nothing has to name a folder, so nothing has to carry a path or an
+    /// identifier the frontend could have invented.
+    ///
+    /// A folder that has gone missing is reported and skipped rather than
+    /// failing the run. An unplugged drive must not stop the folders that are
+    /// still there from being scanned.
+    pub fn scan_all_import_folders(&mut self) -> Result<Vec<IntakeReport>, SessionError> {
+        let folders = self.store.import_folders()?;
+        let mut reports = Vec::new();
+        for (folder_id, _) in folders {
+            match self.scan_import_folder(folder_id) {
+                Ok(report) => reports.push(report),
+                Err(SessionError::NoLibrary) => return Err(SessionError::NoLibrary),
+                Err(_) => continue,
+            }
+        }
+        Ok(reports)
+    }
+
     /// Remembers a folder to look in for ROMs. Scanned only when asked.
     pub fn nominate_import_folder(&mut self, path: &str) -> Result<i64, SessionError> {
         Ok(self.store.remember_import_folder(path, None)?)

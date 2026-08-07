@@ -25,7 +25,7 @@
 
 use std::sync::Mutex;
 
-use rom_manager::{AppPaths, FilesystemTransport, Session, Snapshot, Store};
+use rom_manager::{AppPaths, FilesystemTransport, Library, Session, Snapshot, Store};
 use tauri::{Manager, State};
 
 /// The session, behind a lock because Tauri dispatches commands concurrently.
@@ -62,6 +62,19 @@ macro_rules! plain_command {
             session!(state).$name().map_err(|error| error.to_string())
         }
     };
+}
+
+/// Scans every remembered folder and gathers what it finds into ROM Packs.
+///
+/// The scan itself is reported through the returned state rather than as a
+/// list, so the UI shows what is now choosable instead of a log of files.
+#[tauri::command]
+fn scan_import_folders(state: State<'_, AppState>) -> Reply {
+    let mut session = session!(state);
+    session
+        .scan_all_import_folders()
+        .map_err(|error| error.to_string())?;
+    session.load_snapshot().map_err(|error| error.to_string())
 }
 
 plain_command!(load_snapshot);
@@ -167,6 +180,13 @@ fn open_store() -> Result<Store, String> {
 }
 
 fn main() {
+    let paths = match AppPaths::from_env() {
+        Some(paths) => paths,
+        None => {
+            eprintln!("ROM Manager cannot start: this system reports no home directory");
+            std::process::exit(1);
+        }
+    };
     let store = match open_store() {
         Ok(store) => store,
         Err(reason) => {
@@ -181,7 +201,17 @@ fn main() {
     let connect = Box::new(|locator: &str| {
         FilesystemTransport::new(locator).map_err(|error| error.to_string())
     });
-    let session = Session::new(store, connect);
+    let mut session = Session::new(store, connect);
+    match Library::open(paths.library_root()) {
+        Ok(library) => session.set_library(library),
+        Err(error) => {
+            // Without storage nothing can be imported, and an application that
+            // silently could not take anything in would look broken in a way
+            // the user could not diagnose.
+            eprintln!("ROM Manager cannot start: the Library is unusable: {error}");
+            std::process::exit(1);
+        }
+    }
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -196,6 +226,7 @@ fn main() {
             select_media_target,
             pick_media_target,
             pick_import_folder,
+            scan_import_folders,
             initialize_target,
             refresh_target,
             build_plan,

@@ -35,7 +35,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    Library, Store,
+    Library, Skipped, Store,
     formats::{BASELINE, Representation, Support, may_stand_alone},
     library::ImportError,
     outcomes::{Diagnostic, Location, Outcome, ReasonCode},
@@ -154,6 +154,24 @@ pub fn take_in(
 ) -> Result<IntakeReport, IntakeError> {
     let scan = library.scan_folder(store, folder, now)?;
     let mut report = IntakeReport::default();
+
+    // What the scan could not read is carried through rather than dropped. An
+    // unplugged drive produces an empty folder listing, and reporting that as a
+    // clean scan of nothing would tell the user their games had vanished.
+    for skipped in &scan.skipped {
+        let (path, outcome, reason) = match skipped {
+            Skipped::Unreadable(path) => (path, Outcome::IoFailure, ReasonCode::ReadFailed),
+            Skipped::Indirection(path) => {
+                // Never followed: a scan must not be steerable out of the
+                // folder the user pointed at.
+                (path, Outcome::Unsupported, ReasonCode::EscapingReference)
+            }
+            Skipped::Unsafe(path) => (path, Outcome::Invalid, ReasonCode::MalformedStructure),
+        };
+        report
+            .declined
+            .push(Diagnostic::new(outcome, reason).at(Location::in_source(path.clone())));
+    }
     // Everything the folder currently holds, whether or not this scan is what
     // first saw it. The pack must describe the folder as it *is*; building it
     // from only the newly-seen files would mean adding one game to a folder

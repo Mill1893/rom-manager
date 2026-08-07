@@ -423,3 +423,71 @@ fn removing_a_file_from_the_folder_removes_it_from_the_next_pack_revision() {
         "the deleted game leaves the pack"
     );
 }
+
+#[test]
+fn one_missing_folder_does_not_stop_the_others_being_scanned() {
+    // An unplugged drive is an ordinary Tuesday. It must not mean the folders
+    // still present go unread.
+    let directory = tempfile::tempdir().unwrap();
+    let present = directory.path().join("present");
+    fs::create_dir_all(&present).unwrap();
+    fs::write(present.join("Tracers.nes"), ROM_BYTES).unwrap();
+
+    let store = Store::open(&directory.path().join("state.sqlite3")).unwrap();
+    let mut session: Session<rom_manager::FakeTransport> = Session::new(
+        store,
+        Box::new(|_| Ok(rom_manager::FakeTransport::new("fake://", 1 << 20))),
+    );
+    session.set_library(Library::open(directory.path().join("library")).unwrap());
+
+    session
+        .nominate_import_folder("/a/drive/that/is/not/plugged/in")
+        .unwrap();
+    session
+        .nominate_import_folder(&present.to_string_lossy())
+        .unwrap();
+
+    let reports = session
+        .scan_all_import_folders()
+        .expect("a missing folder does not stop the run");
+
+    assert_eq!(reports.len(), 2, "both folders were attempted");
+    assert_eq!(
+        session.available_packs().len(),
+        1,
+        "only the reachable folder produced a pack"
+    );
+
+    // The unreachable one is reported rather than passed off as an empty scan,
+    // which would tell the user their games had vanished.
+    let unreadable: Vec<_> = reports
+        .iter()
+        .flat_map(|report| &report.declined)
+        .filter(|diagnostic| diagnostic.outcome == Outcome::IoFailure)
+        .collect();
+    assert_eq!(unreadable.len(), 1);
+    assert!(
+        unreadable[0]
+            .location
+            .source
+            .as_deref()
+            .unwrap_or_default()
+            .contains("not/plugged/in"),
+        "the diagnostic names the folder that could not be read"
+    );
+}
+
+#[test]
+fn scanning_everything_with_no_library_is_refused_rather_than_silently_doing_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(&directory.path().join("state.sqlite3")).unwrap();
+    let mut session: Session<rom_manager::FakeTransport> = Session::new(
+        store,
+        Box::new(|_| Ok(rom_manager::FakeTransport::new("fake://", 1 << 20))),
+    );
+    session
+        .nominate_import_folder(&directory.path().to_string_lossy())
+        .unwrap();
+
+    assert!(session.scan_all_import_folders().is_err());
+}

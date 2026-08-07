@@ -255,3 +255,20 @@ describe("an empty catalogue", () => {
     expect(pathish).toHaveLength(0);
   });
 });
+
+describe("scanning", () => {
+  it("is a separate act from remembering a folder", async () => {
+    // Remembering is cheap and reversible; reading every file in a folder is
+    // neither. The application never walks the user's disks on its own.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectRomPack" }, { romPack: null }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /add a rom folder/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_import_folder", undefined));
+    expect(invoke).not.toHaveBeenCalledWith("scan_import_folders", undefined);
+
+    await userEvent.click(screen.getByRole("button", { name: /scan for roms/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("scan_import_folders", undefined));
+  });
+});
