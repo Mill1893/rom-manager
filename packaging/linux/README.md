@@ -11,6 +11,11 @@ disappears when the process exits, which makes the placement rules in
 `src/paths.rs` enforceable rather than merely intended: there is nowhere inside
 the bundle for state to accidentally land.
 
+`scripts/assert-appimage-containment.sh` checks that rather than trusting it,
+and the packaging job runs it against the bundle it just built. It mounts the
+AppImage with `--appimage-mount` — no display, no application start — and
+fails if the mount is not read-only or if a write into it succeeds.
+
 ## What is bundled, and the licences that come with it
 
 Every bundled dependency is recorded in `bundled-licences.md`. The obligation
