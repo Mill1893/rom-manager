@@ -15,6 +15,7 @@ mod esde;
 mod filesystems;
 pub mod formats;
 mod gamelist;
+pub mod intake;
 mod library;
 pub mod manifest;
 mod membership;
@@ -62,6 +63,7 @@ pub use formats::{
     may_stand_alone, needs_members, resolve_members,
 };
 pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OWNED_FIELDS};
+pub use intake::{IntakeError, IntakeReport, RomSetSummary, take_in};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,

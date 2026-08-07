@@ -30,8 +30,8 @@
 //! between granting and executing cannot leave one available to be spent twice.
 
 use crate::{
-    Approval, CancellationToken, ExecutionOutcome, MediaTargetChoice, OutcomeView, Progress,
-    RomPackChoice, Snapshot, Store, StoreError, SyncCore, SyncError, SyncPlan, Transport,
+    Approval, CancellationToken, ExecutionOutcome, IntakeReport, MediaTargetChoice, OutcomeView,
+    Progress, RomPackChoice, Snapshot, Store, StoreError, SyncCore, SyncError, SyncPlan, Transport,
     WizardStep, app::PlanView,
 };
 
@@ -61,6 +61,12 @@ pub enum SessionError {
     Store(String),
     #[error("the device could not be reached: {0}")]
     Transport(String),
+    #[error("no Library is open, so nothing can be taken in")]
+    NoLibrary,
+    #[error("that folder is not one this application was asked to remember")]
+    UnknownImportFolder,
+    #[error("the folder could not be taken in: {0}")]
+    Intake(String),
 }
 
 impl From<StoreError> for SessionError {
@@ -98,6 +104,7 @@ pub struct Session<T: Transport> {
     outcome: Option<OutcomeView>,
     recovery_disclosure: Vec<String>,
     cancellation: CancellationToken,
+    library: Option<crate::Library>,
     packs: Vec<RomPackChoice>,
     targets: Vec<MediaTargetChoice>,
     /// Built by the host once a ROM Pack is chosen: what that pack wants on a
@@ -119,6 +126,7 @@ impl<T: Transport> Session<T> {
             outcome: None,
             recovery_disclosure: Vec::new(),
             cancellation: CancellationToken::default(),
+            library: None,
             packs: Vec::new(),
             targets: Vec::new(),
             desired: Vec::new(),
@@ -169,6 +177,32 @@ impl<T: Transport> Session<T> {
         Ok(())
     }
 
+    /// Scans a remembered folder and gathers what it finds into a ROM Pack.
+    ///
+    /// Separate from nominating on purpose. Remembering a folder is cheap and
+    /// reversible; reading every file in it is neither, and #62 is explicit
+    /// that the application never walks the user's disks on its own schedule.
+    pub fn scan_import_folder(&mut self, folder_id: i64) -> Result<IntakeReport, SessionError> {
+        let library = self.library.as_ref().ok_or(SessionError::NoLibrary)?;
+        let path = self
+            .store
+            .import_folders()?
+            .into_iter()
+            .find(|(id, _)| *id == folder_id)
+            .map(|(_, path)| path)
+            .ok_or(SessionError::UnknownImportFolder)?;
+
+        let report = crate::take_in(library, &self.store, std::path::Path::new(&path), now())
+            .map_err(|error| SessionError::Intake(error.to_string()))?;
+        self.store.mark_folder_scanned(folder_id, now())?;
+
+        // A scan that produced a pack changes what the user can choose, so the
+        // catalogue is refreshed here rather than leaving the UI to guess that
+        // it should ask again.
+        self.reload_catalogues()?;
+        Ok(report)
+    }
+
     /// Remembers a folder to look in for ROMs. Scanned only when asked.
     pub fn nominate_import_folder(&mut self, path: &str) -> Result<i64, SessionError> {
         Ok(self.store.remember_import_folder(path, None)?)
@@ -213,6 +247,16 @@ impl<T: Transport> Session<T> {
             .find(|target| target.target_id == target_id)
             .cloned()
             .ok_or(SessionError::UnknownMediaTarget)
+    }
+
+    /// Attaches the Library that owns imported content.
+    ///
+    /// Optional because most of the workflow does not need one — a session that
+    /// only syncs an already-populated Library never imports anything — and the
+    /// suites that exercise ordering rules should not have to build storage
+    /// they never touch.
+    pub fn set_library(&mut self, library: crate::Library) {
+        self.library = Some(library);
     }
 
     /// Replaces how transports are opened. Exists for tests that need a device
