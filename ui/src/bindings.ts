@@ -143,6 +143,12 @@ export interface Commands {
   loadSnapshot(): Promise<Snapshot>;
   selectRomPack(romPackId: string, revision: number): Promise<Snapshot>;
   selectMediaTarget(targetId: string): Promise<Snapshot>;
+  /**
+   * Claims a device by writing its marker. Separate and confirmed, because
+   * this is how the application takes responsibility for a device's contents —
+   * a user who plugged in the wrong card should get a question, not a claim.
+   */
+  initializeTarget(confirmed: boolean): Promise<Snapshot>;
   /** Observes the target afresh. Never called automatically. */
   refreshTarget(): Promise<Snapshot>;
   buildPlan(): Promise<Snapshot>;

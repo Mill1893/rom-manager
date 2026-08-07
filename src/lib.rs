@@ -25,6 +25,7 @@ mod projection;
 mod provider;
 mod publish;
 mod retire;
+mod session;
 mod store;
 mod transport;
 pub mod worker;
@@ -92,6 +93,7 @@ pub use retire::{
     EligibilityAction, Ineligibility, ProjectionMove, Retirement, plan_retirement,
     withdraw_ineligible_field,
 };
+pub use session::{Connect, Session, SessionError};
 pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
 pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,

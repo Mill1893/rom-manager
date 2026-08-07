@@ -138,6 +138,13 @@ function Step({ snapshot, busy, run }: StepProps): React.JSX.Element {
           <button type="button" disabled={busy !== null} onClick={() => void run("Planning", commands.buildPlan)}>
             Build a sync plan
           </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Setting up", () => commands.initializeTarget(true))}
+          >
+            Set up this device
+          </button>
         </section>
       ) : (
         <PlanReview

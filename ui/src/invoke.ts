@@ -71,6 +71,7 @@ export const commands: Commands = {
   loadSnapshot: () => call("load_snapshot"),
   selectRomPack: (romPackId, revision) => call("select_rom_pack", { romPackId, revision }),
   selectMediaTarget: (targetId) => call("select_media_target", { targetId }),
+  initializeTarget: (confirmed) => call("initialize_target", { confirmed }),
   refreshTarget: () => call("refresh_target"),
   buildPlan: () => call("build_plan"),
   approveAndExecute: (planDigest, acknowledgedRemovals) =>
