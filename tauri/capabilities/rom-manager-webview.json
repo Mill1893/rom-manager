@@ -1,8 +1,10 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
+  "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "rom-manager-webview",
   "description": "Everything the WebView may do. The sync core's own commands are the whole surface; no general-purpose capability is granted.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:event:default",
     "core:window:allow-set-title"
@@ -10,11 +12,11 @@
   "_deliberatelyAbsent": {
     "note": "Issue #34 requires the WebView to have no generic filesystem, SQL, shell, HTTP, or remote executable-content capability. These plugins are not depended on at all, so the capability cannot be re-granted by editing this file alone.",
     "plugins": [
-      "fs — the core resolves every path itself; commands take identifiers",
-      "sql — durable state is reached only through typed commands",
-      "shell — nothing is executed on the user's behalf",
-      "http — the first release performs no network I/O from the WebView",
-      "updater — no automatic updater in the first release"
+      "fs \u2014 the core resolves every path itself; commands take identifiers",
+      "sql \u2014 durable state is reached only through typed commands",
+      "shell \u2014 nothing is executed on the user's behalf",
+      "http \u2014 the first release performs no network I/O from the WebView",
+      "updater \u2014 no automatic updater in the first release"
     ]
   }
 }

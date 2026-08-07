@@ -4,3 +4,5 @@
 *.log
 ui/node_modules/
 ui/dist/
+tauri/target/
+tauri/gen/
