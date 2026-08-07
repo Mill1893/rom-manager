@@ -265,6 +265,29 @@ mod imp {
         value.encode_utf16().collect()
     }
 
+    /// Converts a Win32 path into an NT object-manager path.
+    ///
+    /// `std::fs::canonicalize` returns an **extended-length** path on Windows —
+    /// `\\?\C:\…` — and blindly prefixing `\??\` to that yields
+    /// `\??\\\?\C:\…`, which the object manager rejects with
+    /// `STATUS_OBJECT_NAME_INVALID`. The two prefixes mean the same thing in
+    /// different namespaces, so an existing one is replaced rather than stacked.
+    fn nt_object_path(path: &Path) -> String {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            // \\?\UNC\server\share -> \??\UNC\server\share
+            return format!(r"\??\UNC\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return format!(r"\??\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\") {
+            // A plain UNC path \\server\share.
+            return format!(r"\??\UNC\{rest}");
+        }
+        format!(r"\??\{text}")
+    }
+
     fn open_relative(
         root: Option<&OwnedHandle>,
         name: &mut [u16],
@@ -347,7 +370,7 @@ mod imp {
         pub fn open_root(root: &Path) -> io::Result<Self> {
             // The root is reached by a fully qualified name, then inspected: if
             // the root is itself a reparse point, OBJ_DONT_REPARSE refuses it.
-            let mut name = wide(&format!(r"\??\{}", root.display()));
+            let mut name = wide(&nt_object_path(root));
             open_relative(
                 None,
                 &mut name,
