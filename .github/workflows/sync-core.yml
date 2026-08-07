@@ -92,9 +92,29 @@ jobs:
           npm run build
       - name: Build the Windows target
         run: cargo build --release --target x86_64-pc-windows-msvc
+      # The NSIS side has the same shape as the AppImage side but a much smaller
+      # surface: one plugin DLL, which Tauri already pins by version and checks
+      # by hash. Caching its tool directory means a restored run does not
+      # re-request it — this download has previously returned HTTP 500. A cold
+      # run still fetches, and Tauri does that itself, so its retry behaviour is
+      # not ours to set. That is the honest limit of this step: it narrows the
+      # window rather than closing it, and unlike the Linux job it has not been
+      # observed making a build network-free.
+      #
+      # The key is a proxy, not a precise one. What decides the DLL is the
+      # bundler version inside @tauri-apps/cli, so the lock file that pins the
+      # CLI is the closest thing available — at the cost of an unrelated
+      # frontend bump also evicting it.
+      - name: Restore Tauri's NSIS tooling
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\tauri
+          key: nsis-tools-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
       # Frontend already built in the UI step; see tauri/README.md.
+      # --verbose for the same reason as the AppImage job: without it a bundler
+      # failure arrives with no diagnostics attached.
       - name: Bundle the unsigned NSIS installer
-        run: npx --prefix ui tauri build --bundles nsis
+        run: npx --prefix ui tauri build --bundles nsis --verbose
       - name: Run the filesystem tracer against a real Windows volume
         shell: pwsh
         run: |
@@ -139,10 +159,31 @@ jobs:
           npm run build
       - name: Build the release binary
         run: cargo build --release
+      # Bundling an AppImage pulls six tools from three hosts. Restoring them
+      # from cache is what keeps the release path off the network; the fetch
+      # below is the fallback, and it retries and verifies. See
+      # packaging/bundler-tools.lock.
+      - name: Restore the pinned bundler tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rom-manager-bundler
+          key: bundler-tools-${{ runner.os }}-${{ hashFiles('packaging/bundler-tools.lock') }}
+      - name: Fetch any bundler tools the cache did not supply
+        run: scripts/fetch-bundler-tools.sh
       # The frontend is built in the UI step above rather than by a
       # beforeBuildCommand — see tauri/README.md for why that hook is absent.
+      #
+      # --verbose is load-bearing. Without it Tauri discards linuxdeploy's
+      # output, and a packaging failure reads only `failed to run linuxdeploy`
+      # with no indication of which of its six downloads or twenty steps went
+      # wrong. That is how this job stayed unexplained through two failures.
+      # LDAI_RUNTIME_FILE points the AppImage plugin at the runtime it would
+      # otherwise fetch itself. The fetch step exports it through $GITHUB_ENV
+      # rather than the path being written out again here, which would be a
+      # second copy of a location the script decides — and the wrong one
+      # wherever XDG_CACHE_HOME is set.
       - name: Bundle the AppImage
-        run: npx --prefix ui tauri build --bundles appimage
+        run: npx --prefix ui tauri build --bundles appimage --verbose
       - name: Record bundled dependency licences
         run: |
           cargo tree --edges normal --prefix none --format '{p} {l}' \

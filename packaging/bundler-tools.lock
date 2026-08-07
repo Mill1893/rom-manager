@@ -1,0 +1,44 @@
+# The third-party tools the packaging step fetches, pinned by content.
+#
+# Bundling an AppImage is not a hermetic operation. Tauri's bundler downloads
+# linuxdeploy and its plugins on first use, and linuxdeploy's own AppImage
+# plugin then downloads the AppImage type-2 runtime from a *third* repository.
+# Six files in total, from three hosts. Four carry no upstream version at all —
+# two from a `master` branch and two from a `continuous` tag — so the bytes
+# behind them can change with nothing to notice it by. The other two sit behind
+# release tags, which is better but not a guarantee: the `linuxdeploy` tag is
+# re-rollable in place, and its asset last moved in 2024.
+#
+# This file records the bytes we actually built against. `fetch-bundler-tools.sh`
+# fetches each entry, verifies it against the digest here, and places it where
+# the tool that needs it will find it — so a build either uses these exact
+# tools or fails loudly. It does not use whatever upstream happens to be
+# serving today.
+#
+# On a digest mismatch the fetch fails rather than proceeding. That is the
+# intended behaviour: an unannounced change to a binary in the release path is
+# something a person should look at, not something a build should absorb. To
+# adopt a new upstream version deliberately, run:
+#
+#     scripts/fetch-bundler-tools.sh --repin
+#
+# which rewrites the digests below. Review that diff like any other dependency
+# bump — `git diff` on this file is the only notice you will get.
+#
+# Note what this does and does not buy. It removes the network from the
+# packaging path only when the cache is warm or these files are already
+# present; a cold run still fetches them, just with retries and verification.
+# It says nothing about the application, which contains no network-capable
+# crate at all — that is a separate property, asserted by the test suite.
+#
+# Format: <destination> <sha256> <url>
+#
+#   tauri   — Tauri's own bundler cache; it looks these up by exact filename.
+#   runtime — ours, passed to the AppImage plugin via LDAI_RUNTIME_FILE.
+
+tauri AppRun-x86_64 f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+tauri linuxdeploy-x86_64.AppImage e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
+tauri linuxdeploy-plugin-gtk.sh cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+tauri linuxdeploy-plugin-gstreamer.sh c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94 https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh
+tauri linuxdeploy-plugin-appimage.AppImage a45d3e227bc7f397e9cf6bfa4c9507494efa2293357b6e86690a3de2ca992e79 https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+runtime runtime-x86_64 1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64

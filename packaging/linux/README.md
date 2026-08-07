@@ -31,3 +31,60 @@ the point of the split — see `src/paths.rs`.
 CI runs the `package-linux` job. Locally, the build needs a Linux host with the
 Tauri prerequisites (`webkit2gtk`, `libayatana-appindicator`), which is why it
 is a CI job rather than a script anyone is expected to run by hand.
+
+On a host that does have them, reproducing what CI does is four commands. They
+are written out because the packaging path is the one place where guessing at
+the invocation has cost this project a day twice over:
+
+```sh
+scripts/fetch-bundler-tools.sh
+export LDAI_RUNTIME_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/rom-manager-bundler/runtime-x86_64"
+npm --prefix ui run build
+npx --prefix ui tauri build --bundles appimage --verbose
+```
+
+## The bundler's own downloads
+
+Building the AppImage is not a hermetic operation, and this took two CI
+failures to pin down. `tauri build --bundles appimage` fetches six files from
+three hosts in the middle of the build:
+
+| file | fetched by | pinned upstream? |
+| --- | --- | --- |
+| `linuxdeploy-x86_64.AppImage` | Tauri | tag `linuxdeploy` |
+| `AppRun-x86_64` | Tauri | tag `apprun-old` |
+| `linuxdeploy-plugin-gtk.sh` | Tauri | no — `master` |
+| `linuxdeploy-plugin-gstreamer.sh` | Tauri | no — `master` |
+| `linuxdeploy-plugin-appimage.AppImage` | Tauri | no — `continuous` |
+| `runtime-x86_64` | **linuxdeploy's plugin** | no — `continuous` |
+
+Tauri caches the first five. It does not know about the sixth, which its plugin
+fetches on its own, so that one was downloaded on **every** build — including
+the run where packaging hung for two minutes and failed.
+
+`scripts/fetch-bundler-tools.sh` fetches all six ahead of the build, with
+retries, verifying each against `packaging/bundler-tools.lock`, and hands the
+runtime to the plugin through `LDAI_RUNTIME_FILE`. A build that runs it first
+downloads nothing: observed on this branch, where `package-linux` emitted no
+bundler download at all and the only `Downloading` lines in the job log were
+cargo fetching crates. In CI the store is additionally restored from
+`actions/cache`; the cold path is the one that has been exercised, and a warm
+restore has not yet happened on a first run of a new lock file.
+
+Two things worth knowing before changing this:
+
+- **The store is deliberately not Tauri's cache directory.** Tauri zeroes the
+  three AppImage magic bytes at offset 8 of `linuxdeploy-x86_64.AppImage` so it
+  can execute it without FUSE — `cmp -l` against a pristine download differs at
+  those three positions and nowhere else. Verifying digests in place would
+  therefore see its own cache as corrupt and re-download on every build.
+- **A digest mismatch is fatal, on purpose.** Four of those URLs track a
+  moving branch or tag, so the bytes can change with no version number
+  changing. The cost of that choice is real: an upstream push breaks packaging
+  until someone looks. That is the intended trade — the alternative is
+  absorbing an unannounced binary change into the release path silently. Adopt
+  a change deliberately with `scripts/fetch-bundler-tools.sh --repin`, which
+  refuses to rewrite from an incomplete fetch, and review the diff.
+
+None of this is a claim about the application, which contains no
+network-capable crate at all. It is about the build that produces it.
