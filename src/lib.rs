@@ -17,6 +17,7 @@ pub mod formats;
 mod gamelist;
 mod library;
 pub mod manifest;
+mod membership;
 mod merge;
 mod outcomes;
 mod paths;
@@ -64,6 +65,7 @@ pub use library::{
     ScanReport, SetAvailability, SetState, Skipped,
 };
 pub use manifest::{LIMITS, Limits, MANIFEST_REVISION};
+pub use membership::{Assessment, Member, MemberClass, assess, classify, resolve_descriptor};
 pub use merge::{
     FieldOutcome, LedgerEntry, conflicts, merge_entry, merge_field, requires_user_decision,
 };
