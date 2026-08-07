@@ -4,9 +4,9 @@ Evidence for [Certify the Windows sync-core milestone](https://github.com/Mill18
 
 ## Disposition
 
-**Blocked.** This gate cannot close.
+**Blocked on physical validation only.**
 
-Two required inputs do not exist yet: no packaged Windows build has been produced, and no physical AYN Odin 3 validation has been performed. The ticket is explicit that fake-transport, CI, and diagnostic results must not be generalized into packaged-host or physical claims, so this report **records what is established and names what is not** rather than certifying the gate.
+CI is green on both hosts and both packaging jobs succeed, so the automated half of this gate is now evidenced rather than promised. What remains is physical: no packaged build has been installed and run on a real Windows host, and no AYN Odin 3 validation has been performed. The ticket is explicit that fake-transport, CI, and diagnostic results must not be generalized into packaged-host or physical claims, so this report **records what is established and names what is not** rather than certifying the gate.
 
 The single blocking cause underneath most of it: **GitHub Actions has never executed on this repository.**
 
@@ -29,8 +29,8 @@ The single blocking cause underneath most of it: **GitHub Actions has never exec
 | --- | --- | --- |
 | Linux dev host (WSL2, Ubuntu 24.04, ext4) | Full automated suite, confinement against real symlinks, scale baseline, network-denied run | Exercised |
 | Windows 11 build 26200, NTFS, non-admin | One-off path and handle probes ([#52](https://github.com/Mill1893/rom-manager/issues/52)) | Exercised, **diagnostic only** |
-| `x86_64-pc-windows-gnu` cross-compilation | Type-checking the Windows code paths | Compiles; **never executed** |
-| Windows CI runner | Native build, suite, packaging | **Never run** |
+| `x86_64-pc-windows-gnu` cross-compilation | Type-checking the Windows code paths | Compiles |
+| Windows CI runner, Server 2025 build 26100 | Native build, full suite, packaging | **Green** |
 | Packaged Windows host | Installed-application behaviour | **Never run** |
 | AYN Odin 3 | Physical WPD validation | **Never run** |
 
@@ -114,7 +114,7 @@ Covered on the components that exist: full keyboard operation, accessible names,
 
 ## Required before this gate can close
 
-1. **Enable GitHub Actions.** Zero runs exist on this repository. Blocks native Windows results, packaging, and the host-behaviour probe report.
+1. ~~Enable GitHub Actions.~~ **Done.** The suite is green on `ubuntu-latest` and `windows-latest`, both packaging jobs succeed, and the host-behaviour probe report is published as an artifact.
 2. **Produce a packaged Windows build** ([#35](https://github.com/Mill1893/rom-manager/issues/35)) and validate it on a Windows host ([#37](https://github.com/Mill1893/rom-manager/issues/37)).
 3. **Validate WPD on the AYN Odin 3** ([#38](https://github.com/Mill1893/rom-manager/issues/38)).
 4. **Complete the desktop workflow** ([#34](https://github.com/Mill1893/rom-manager/issues/34)) — the Tauri shell and the remaining steps.
