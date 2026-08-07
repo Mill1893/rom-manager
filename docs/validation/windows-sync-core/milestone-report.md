@@ -15,13 +15,19 @@ The single remaining blocking cause is **access to physical hardware** — a Win
 | Item | Value |
 | --- | --- |
 | Branch | `feat/durable-sync-state` (stacked on `feat/target-path-namespace` → `feat/sync-core-safety-foundation`) |
-| Packaged build | Linux AppImage, 78 MB, built locally. **No Windows installer has been produced.** |
+| Packaged build | Unsigned NSIS installer `ROM Manager_0.1.0_x64-setup.exe` (2.78 MB) and `ROM Manager_0.1.0_amd64.AppImage` (78.7 MB), both built in CI from commit `7bb4cfc` |
 | Toolchain | Rust 1.97.1, pinned by `rust-toolchain.toml` |
 | Durable schema version | 2 (`migrations/0001_initial.sql`, `migrations/0002_library.sql`) |
 | NES fixture identity | `ac46556f3c6a5e3a0ed4ce7a4a09dd05ae8b01d012f473d29201b1ec2a200946`, reproduced by `fixtures/nes/generate.mjs` |
 | Generic profile identity | `generic-folder` revision 1, snapshot digest in `fixtures/profiles/generic-folder.rev1.sha256` |
 
-**This report does not link one exact packaged build, because none exists.** Criterion 1 is unmet on that basis alone.
+Both are published by CI as the `windows-unsigned-package` and
+`linux-appimage-inputs` artifacts. The installer's SHA-256 is
+`95167d8a64e56ab25dea872916ef02a8687cdcc399549258a4a9eb0ee6c64014`.
+
+**No packaged build has been installed and run by a human.** Criterion 1 asks
+for evidence from the installed application, and producing an installer is not
+the same as installing one.
 
 ## Environments
 
@@ -50,10 +56,11 @@ now, and the following were observed rather than asserted on a Linux desktop:
 | The AppImage runs with no system-wide install | yes |
 | The AppImage writes nothing into its own mount point | yes — state went to XDG |
 
-**What this does not establish.** No Windows installer has been produced, so
-nothing here speaks to NSIS, WebView2 bootstrapping, or the upgrade, uninstall,
-and reinstall boundaries [#35](https://github.com/Mill1893/rom-manager/issues/35)
-requires. The application's ROM Pack and Media Target catalogues are also
+**What this does not establish.** An unsigned NSIS installer now builds in CI,
+but nobody has run it. Nothing here speaks to WebView2 bootstrapping or to the
+upgrade, uninstall, and reinstall boundaries
+[#35](https://github.com/Mill1893/rom-manager/issues/35) requires — those are
+observations about an *installed* application, and there has not been one. The application's ROM Pack and Media Target catalogues are also
 deliberately empty — nominating those is unfinished work — so the wizard starts
 with nothing to choose and no end-to-end user journey has been walked.
 

@@ -208,10 +208,16 @@ banner "Validate the packaged filesystem tracer on Windows (#37)"
 # ── 1 ────────────────────────────────────────────────────────────────────
 stage "Identify the exact build" 5
 say "Every result below is only meaningful against one exact build."
-note "The NSIS installer is issue #35 and does not exist yet. What does exist is"
-note "rom-manager-tracer.exe, published by the package-windows CI job as the"
-note "windows-unsigned-package artifact. Download that and point this at it."
-step "Copy rom-manager-tracer.exe (or the installer, once there is one) here."
+note "The package-windows CI job publishes a windows-unsigned-package artifact"
+note "holding three things: ROM Manager_<version>_x64-setup.exe (the unsigned"
+note "NSIS installer), rom-manager.exe (the application), and"
+note "rom-manager-tracer.exe (the scenario runner this runbook drives)."
+step "Download that artifact and unpack it somewhere you can reach."
+ask INSTALLER_PATH "Path to the _x64-setup.exe installer:"
+if [[ -f "$INSTALLER_PATH" ]]; then
+  write_env INSTALLER_SHA256 "$(sha256sum "$INSTALLER_PATH" | cut -d" " -f1)"
+fi
+write_env INSTALLER_PATH "$INSTALLER_PATH"
 ask TRACER_PATH "Path to rom-manager-tracer.exe:"
 if [[ -f "$TRACER_PATH" ]]; then
   BUILD_SHA=$(sha256sum "$TRACER_PATH" | cut -d' ' -f1)

@@ -253,10 +253,11 @@ write_env OFFLINE_OPERATION "$OFFLINE_RESULT"
 # ── 4 ────────────────────────────────────────────────────────────────────
 stage "Filesystem coverage" 14
 warn "Each filesystem needs a REAL volume — formatting a USB stick is fine."
-note "rom-manager-tracer runs the whole scenario matrix against a volume and"
-note "reports what it observed. It is published by the package-linux CI job as"
-note "the linux-appimage-inputs artifact. Give its path to measure rather than"
-note "judge by eye; leave it blank to answer by hand."
+note "The package-linux CI job publishes a linux-appimage-inputs artifact"
+note "holding both ROM Manager_<version>_amd64.AppImage and rom-manager-tracer."
+note "The tracer runs the whole scenario matrix against a volume and reports"
+note "what it observed. Give its path to measure rather than judge by eye;"
+note "leave it blank to answer by hand."
 ask TRACER_PATH "Path to rom-manager-tracer (blank to skip):"
 write_env TRACER_PATH "$TRACER_PATH"
 for FS in ext4 exfat fat32; do
