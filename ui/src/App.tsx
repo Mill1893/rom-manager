@@ -19,8 +19,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MediaTargetChoice, RomPackChoice, Snapshot } from "./bindings";
+import type {
+  MediaTargetChoice,
+  OutcomeKind,
+  RomPackChoice,
+  ScanSummary,
+  Snapshot,
+} from "./bindings";
+import type { StateName } from "./tokens";
 import { PlanReview } from "./PlanReview";
+import { StatusBadge } from "./StatusBadge";
 import { commands, subscribe } from "./invoke";
 import { mustRefreshBeforeContinuing, outcomeAnnouncement, progressAnnouncement } from "./wizard";
 
@@ -113,8 +121,43 @@ export function App(): React.JSX.Element {
         </p>
       )}
 
+      {snapshot.lastScan !== null && <ScanResult summary={snapshot.lastScan} />}
+
       <Step snapshot={snapshot} busy={busy} run={run} />
     </main>
+  );
+}
+
+/**
+ * What the last scan took in, and what it refused.
+ *
+ * The refusals are listed individually rather than counted. "3 files skipped"
+ * tells a user that something is missing without telling them what, which is
+ * the worst of both: enough to worry about, not enough to act on.
+ */
+function ScanResult({ summary }: { readonly summary: ScanSummary }): React.JSX.Element {
+  return (
+    <section aria-labelledby="scan-heading">
+      <h2 id="scan-heading">Last scan</h2>
+      <p role="status">
+        {summary.romSetsAdded} game{summary.romSetsAdded === 1 ? "" : "s"} added from{" "}
+        {summary.foldersScanned} folder{summary.foldersScanned === 1 ? "" : "s"}.
+      </p>
+
+      {summary.declined.length > 0 && (
+        <>
+          <h3>Not added ({summary.declined.length})</h3>
+          <ul>
+            {summary.declined.map((file) => (
+              <li key={`${file.path}:${file.code}`}>
+                <code>{file.path}</code>
+                <p>{file.remediation}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -179,7 +222,26 @@ function SelectRomPack({
     <section aria-labelledby="rom-pack-heading">
       <h2 id="rom-pack-heading">Choose what to sync</h2>
       {chosen === null ? (
-        <p>No ROM Pack is selected.</p>
+        <>
+          <p>
+            No ROM Packs yet. Add a folder to look for ROMs in — nothing is read
+            until you ask for a scan.
+          </p>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Choosing", commands.pickImportFolder)}
+          >
+            Add a ROM folder…
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Scanning", commands.scanImportFolders)}
+          >
+            Scan for ROMs
+          </button>
+        </>
       ) : (
         <p>
           <strong>{chosen.title}</strong> — {chosen.romSetCount} ROM Set
@@ -217,7 +279,16 @@ function SelectMediaTarget({
     <section aria-labelledby="target-heading">
       <h2 id="target-heading">Choose a device</h2>
       {chosen === null ? (
-        <p>No device is selected.</p>
+        <>
+          <p>No devices yet. Choose the card or drive you sync to.</p>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("Choosing", commands.pickMediaTarget)}
+          >
+            Add a device…
+          </button>
+        </>
       ) : (
         <p>
           <strong>{chosen.label}</strong>
@@ -270,11 +341,33 @@ function Executing({ snapshot, busy, run }: StepProps): React.JSX.Element {
   );
 }
 
+/**
+ * Which declared state an outcome is.
+ *
+ * `indeterminate` is deliberately not folded in with the other non-successes.
+ * "We could not establish what reached the device" is a different thing to tell
+ * someone than "this failed", and the tokens name it separately for that
+ * reason.
+ */
+function badgeFor(kind: OutcomeKind): StateName {
+  switch (kind) {
+    case "completed":
+      return "success";
+    case "indeterminate":
+      return "indeterminate";
+    case "cancelled":
+      return "stale";
+    case "incomplete":
+      return "blocked";
+  }
+}
+
 function Result({ snapshot, busy, run }: StepProps): React.JSX.Element {
   const outcome = snapshot.outcome;
   return (
     <section aria-labelledby="result-heading">
       <h2 id="result-heading">Finished</h2>
+      {outcome !== null && <StatusBadge state={badgeFor(outcome.kind)} />}
       <p role="status" aria-live="polite">
         {outcome === null ? "No result was recorded." : outcomeAnnouncement(outcome)}
       </p>

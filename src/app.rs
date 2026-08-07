@@ -59,6 +59,32 @@ pub struct Snapshot {
     /// Disclosure a replacement plan must carry after an interrupted run, per
     /// issue #50 §6. Empty when there is nothing to disclose.
     pub recovery_disclosure: Vec<String>,
+    /// What the last scan found, until something else replaces it.
+    pub last_scan: Option<ScanSummary>,
+}
+
+/// What a scan of the remembered folders produced.
+///
+/// The declined list is the part that matters. A scan that quietly imported
+/// nine files out of ten and said "9 games added" would leave the user with a
+/// collection missing a game they own and no way to find out which. Every file
+/// the application refused is named, with a reason it can act on.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanSummary {
+    pub folders_scanned: usize,
+    pub rom_sets_added: usize,
+    pub declined: Vec<DeclinedFile>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclinedFile {
+    pub path: String,
+    /// The stable machine-readable code, for reports and for matching.
+    pub code: String,
+    /// The sentence the user acts on.
+    pub remediation: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

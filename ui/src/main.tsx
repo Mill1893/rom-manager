@@ -10,10 +10,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { stylesheet } from "./styles";
 import { toCssVariables } from "./tokens";
 
 const style = document.createElement("style");
-style.textContent = `:root {\n${toCssVariables()}\n}`;
+style.textContent = `:root {\n${toCssVariables()}\n}\n${stylesheet()}`;
 document.head.append(style);
 
 const container = document.querySelector("#root");

@@ -133,6 +133,7 @@ fn a_snapshot_round_trips_across_the_webview_boundary() {
         plan: Some(PlanView::of(&plan, true)),
         progress: None,
         outcome: None,
+        last_scan: None,
         recovery_disclosure: vec!["1 permanent removal was not performed".into()],
     };
 

@@ -39,6 +39,7 @@ function snapshot(step: WizardStep, extra: Partial<Snapshot> = {}): Snapshot {
     progress: null,
     outcome: null,
     recoveryDisclosure: [],
+    lastScan: null,
     ...extra,
   };
 }
@@ -222,5 +223,105 @@ describe("state pushed by the core", () => {
 
     expect(await screen.findByRole("heading", { name: /syncing/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /choose what to sync/i })).toBeNull();
+  });
+});
+
+describe("an empty catalogue", () => {
+  it("offers to add a ROM folder rather than showing an empty list", async () => {
+    // A wizard with nothing to choose and no way to add anything is a dead end,
+    // which is exactly what shipping the empty catalogues without this would be.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectRomPack" }, { romPack: null }));
+
+    render(<App />);
+    const add = await screen.findByRole("button", { name: /add a rom folder/i });
+
+    await userEvent.click(add);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_import_folder", undefined));
+  });
+
+  it("offers to add a device, and sends no path when doing so", async () => {
+    // The command takes no arguments on purpose: the OS picker decides which
+    // directory, so a path never crosses this boundary.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectMediaTarget" }, { mediaTarget: null }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /add a device/i }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_media_target", undefined));
+    const pathish = invoke.mock.calls.filter(([, payload]) =>
+      JSON.stringify(payload ?? {}).match(/[/\\]/),
+    );
+    expect(pathish).toHaveLength(0);
+  });
+});
+
+describe("scanning", () => {
+  it("is a separate act from remembering a folder", async () => {
+    // Remembering is cheap and reversible; reading every file in a folder is
+    // neither. The application never walks the user's disks on its own.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectRomPack" }, { romPack: null }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /add a rom folder/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("pick_import_folder", undefined));
+    expect(invoke).not.toHaveBeenCalledWith("scan_import_folders", undefined);
+
+    await userEvent.click(screen.getByRole("button", { name: /scan for roms/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("scan_import_folders", undefined));
+  });
+});
+
+describe("what a scan refused", () => {
+  it("names every declined file instead of counting them", async () => {
+    // "3 files skipped" tells a user something is missing without telling them
+    // what — enough to worry about, not enough to act on.
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        {
+          lastScan: {
+            foldersScanned: 1,
+            romSetsAdded: 4,
+            declined: [
+              {
+                path: "/home/andy/roms/Something.iso",
+                code: "platform_undetermined",
+                remediation: "Choose the Platform for this content, or place it in a Platform folder.",
+              },
+              {
+                path: "/home/andy/roms/notes.docx",
+                code: "unknown_extension",
+                remediation: "This release does not import this extension. Convert the content.",
+              },
+            ],
+          },
+        },
+      ),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("/home/andy/roms/Something.iso")).toBeInTheDocument();
+    expect(screen.getByText("/home/andy/roms/notes.docx")).toBeInTheDocument();
+    expect(screen.getByText(/choose the platform/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /not added \(2\)/i })).toBeInTheDocument();
+  });
+
+  it("says nothing about refusals when there were none", async () => {
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        { lastScan: { foldersScanned: 1, romSetsAdded: 4, declined: [] } },
+      ),
+    );
+
+    render(<App />);
+    await screen.findByRole("heading", { name: /last scan/i });
+    expect(screen.queryByRole("heading", { name: /not added/i })).toBeNull();
   });
 });

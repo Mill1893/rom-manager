@@ -147,6 +147,11 @@ jobs:
         run: |
           cargo tree --edges normal --prefix none --format '{p} {l}' \
             | sort -u > packaging/linux/resolved-licences.txt
+          # The Rust graph above is not what the AppImage ships. This reads the
+          # built artefact, which is where the LGPL obligations actually are.
+          ./scripts/record-bundled-licences.sh \
+            "$(ls tauri/target/release/bundle/appimage/*.AppImage | head -1)" \
+            packaging/linux/bundled-licences.md
       - name: Validate the desktop entry
         run: desktop-file-validate packaging/linux/rom-manager.desktop
       - name: Run the filesystem tracer against a real Linux volume

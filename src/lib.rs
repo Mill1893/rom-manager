@@ -15,6 +15,7 @@ mod esde;
 mod filesystems;
 pub mod formats;
 mod gamelist;
+pub mod intake;
 mod library;
 pub mod manifest;
 mod membership;
@@ -33,8 +34,8 @@ mod workflow;
 mod wpd;
 
 pub use app::{
-    AppEvent, CancellationState, MediaTargetChoice, OutcomeKind, OutcomeView, Phase, PlanView,
-    Progress, RomPackChoice, Snapshot, WizardStep,
+    AppEvent, CancellationState, DeclinedFile, MediaTargetChoice, OutcomeKind, OutcomeView, Phase,
+    PlanView, Progress, RomPackChoice, ScanSummary, Snapshot, WizardStep,
 };
 pub use cache::{CacheError, Lease, MaterializationCache};
 pub use combined::{
@@ -62,6 +63,7 @@ pub use formats::{
     may_stand_alone, needs_members, resolve_members,
 };
 pub use gamelist::{FRONTEND_OWNED_FIELDS, GameEntry, Gamelist, GamelistError, OWNED_FIELDS};
+pub use intake::{IntakeError, IntakeReport, RomSetSummary, take_in};
 pub use library::{
     Container, DeletionBlocked, ImportError, Imported, IntegrityReport, Library, RemovalImpact,
     ScanReport, SetAvailability, SetState, Skipped,
@@ -81,9 +83,9 @@ pub use projection::{
 pub use provider::http;
 pub use provider::wire;
 pub use provider::{
-    Allowance, BatchRefusal, CachedLookup, CredentialReference, FixtureTransport, LookupOutcome,
-    Provider, ProviderFailure, ProviderRecord, ProviderTransport,
-    provider_artwork_may_reach_a_media_target, redact,
+    ACCEPTED_TERMS_VERSION, Allowance, Attribution, BatchRefusal, CachedLookup,
+    CredentialReference, FixtureTransport, LookupOutcome, Provider, ProviderFailure,
+    ProviderRecord, ProviderTransport, provider_artwork_may_reach_a_media_target, redact,
 };
 pub use publish::{
     DocumentState, Publication, PublishError, PublishPreconditions, RecoveryChoice, RecoveryCopy,
@@ -94,7 +96,7 @@ pub use retire::{
     withdraw_ineligible_field,
 };
 pub use session::{Connect, Session, SessionError};
-pub use store::{OperationState, SCHEMA_VERSION, Store, StoreError};
+pub use store::{OperationState, PackRow, SCHEMA_VERSION, Store, StoreError, TargetRow};
 pub use transport::{
     CancellationToken, EntryKind, FakeFault, FakeTransport, FilesystemTransport, Inventory,
     InventoryArtifact, Transport, TransportCapabilities, TransportError,

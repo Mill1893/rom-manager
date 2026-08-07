@@ -25,9 +25,7 @@
 
 use std::sync::Mutex;
 
-use rom_manager::{
-    AppPaths, FilesystemTransport, MediaTargetChoice, RomPackChoice, Session, Snapshot, Store,
-};
+use rom_manager::{AppPaths, FilesystemTransport, Library, Session, Snapshot, Store};
 use tauri::{Manager, State};
 
 /// The session, behind a lock because Tauri dispatches commands concurrently.
@@ -66,6 +64,19 @@ macro_rules! plain_command {
     };
 }
 
+/// Scans every remembered folder and gathers what it finds into ROM Packs.
+///
+/// The scan itself is reported through the returned state rather than as a
+/// list, so the UI shows what is now choosable instead of a log of files.
+#[tauri::command]
+fn scan_import_folders(state: State<'_, AppState>) -> Reply {
+    let mut session = session!(state);
+    session
+        .scan_all_import_folders()
+        .map_err(|error| error.to_string())?;
+    session.load_snapshot().map_err(|error| error.to_string())
+}
+
 plain_command!(load_snapshot);
 plain_command!(refresh_target);
 plain_command!(build_plan);
@@ -91,6 +102,55 @@ fn initialize_target(state: State<'_, AppState>, confirmed: bool) -> Reply {
     session!(state)
         .initialize_target(confirmed)
         .map_err(|error| error.to_string())
+}
+
+/// Opens a native folder picker and remembers the choice as a Media Target.
+///
+/// The command takes **no arguments**. That is the whole point: the webview
+/// says "the user wants to add a device", and the operating system's own
+/// picker — not the frontend — determines which directory that is. A path
+/// never crosses the boundary in either direction, so the "commands take
+/// identifiers, never paths" rule survives having a file picker at all.
+#[tauri::command]
+fn pick_media_target(state: State<'_, AppState>) -> Reply {
+    let Some(directory) = rfd::FileDialog::new()
+        .set_title("Choose the device or card to sync to")
+        .pick_folder()
+    else {
+        // Cancelling is not an error. Returning the unchanged state means the
+        // UI simply carries on rather than showing a failure for a decision
+        // the user is entitled to make.
+        return session!(state).load_snapshot().map_err(|e| e.to_string());
+    };
+    let label = directory
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| directory.to_string_lossy().into_owned());
+
+    let mut session = session!(state);
+    session
+        .nominate_media_target(&directory.to_string_lossy(), &label)
+        .map_err(|error| error.to_string())?;
+    session.load_snapshot().map_err(|error| error.to_string())
+}
+
+/// Opens a native folder picker and remembers the choice as an Import Folder.
+///
+/// Remembering a folder is not scanning it. Nothing is read here; the
+/// application never walks the user's disks on its own schedule.
+#[tauri::command]
+fn pick_import_folder(state: State<'_, AppState>) -> Reply {
+    let Some(directory) = rfd::FileDialog::new()
+        .set_title("Choose a folder to look for ROMs in")
+        .pick_folder()
+    else {
+        return session!(state).load_snapshot().map_err(|e| e.to_string());
+    };
+    let mut session = session!(state);
+    session
+        .nominate_import_folder(&directory.to_string_lossy())
+        .map_err(|error| error.to_string())?;
+    session.load_snapshot().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -120,6 +180,13 @@ fn open_store() -> Result<Store, String> {
 }
 
 fn main() {
+    let paths = match AppPaths::from_env() {
+        Some(paths) => paths,
+        None => {
+            eprintln!("ROM Manager cannot start: this system reports no home directory");
+            std::process::exit(1);
+        }
+    };
     let store = match open_store() {
         Ok(store) => store,
         Err(reason) => {
@@ -128,16 +195,23 @@ fn main() {
         }
     };
 
-    // A Media Target is a directory the user nominates. Until the target-picking
-    // work lands, the catalogues are empty rather than invented: an application
-    // that offered a device it had not been told about would be guessing at the
-    // one thing it must never guess at.
-    let packs: Vec<RomPackChoice> = Vec::new();
-    let targets: Vec<MediaTargetChoice> = Vec::new();
+    // The catalogues come from durable state, so whatever the user nominated
+    // last time is there this time. Nothing is invented: a fresh install offers
+    // nothing until a folder or a device is picked.
     let connect = Box::new(|locator: &str| {
         FilesystemTransport::new(locator).map_err(|error| error.to_string())
     });
-    let session = Session::new(store, connect, packs, targets);
+    let mut session = Session::new(store, connect);
+    match Library::open(paths.library_root()) {
+        Ok(library) => session.set_library(library),
+        Err(error) => {
+            // Without storage nothing can be imported, and an application that
+            // silently could not take anything in would look broken in a way
+            // the user could not diagnose.
+            eprintln!("ROM Manager cannot start: the Library is unusable: {error}");
+            std::process::exit(1);
+        }
+    }
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -150,6 +224,9 @@ fn main() {
             load_snapshot,
             select_rom_pack,
             select_media_target,
+            pick_media_target,
+            pick_import_folder,
+            scan_import_folders,
             initialize_target,
             refresh_target,
             build_plan,
