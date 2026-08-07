@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "status": "Success",
+  "data": {
+    "count": 2,
+    "games": [
+      { "id": 100002, "game_title": "Placeholder Game Two", "platform": 7 },
+      { "id": 100003, "game_title": "Placeholder Game Two", "platform": 7 }
+    ]
+  },
+  "remaining_monthly_allowance": 2995,
+  "extra_allowance": 0
+}

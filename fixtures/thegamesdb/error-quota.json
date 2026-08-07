@@ -1,0 +1,6 @@
+{
+  "code": 429,
+  "status": "Rate limit exceeded",
+  "remaining_monthly_allowance": 0,
+  "retry_after": 3600
+}

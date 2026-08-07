@@ -623,15 +623,17 @@ fn filesystem_transport_executes_the_same_verified_contract() {
     core.refresh().unwrap();
     let plan = core.build_plan().unwrap();
     assert!(!plan.atomic_publication);
-    assert!(matches!(
-        core.execute(
+    let outcome = core
+        .execute(
             &plan,
             Approval::grant(&plan, 0),
-            &CancellationToken::default()
+            &CancellationToken::default(),
         )
-        .unwrap(),
-        ExecutionOutcome::Completed { .. }
-    ));
+        .unwrap();
+    assert!(
+        matches!(outcome, ExecutionOutcome::Completed { .. }),
+        "filesystem execution did not complete: {outcome:?}"
+    );
     let fixture = std::fs::read(directory.path().join("ROMs/nes/Tracers.nes")).unwrap();
     assert_eq!(fixture, ROM_BYTES);
 }

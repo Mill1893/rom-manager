@@ -1,0 +1,22 @@
+{
+  "code": 200,
+  "status": "Success",
+  "data": {
+    "count": 1,
+    "games": [
+      {
+        "id": 100001,
+        "game_title": "Placeholder Game One",
+        "release_date": "1994-03-17",
+        "platform": 7,
+        "developers": [4001],
+        "publishers": [5001],
+        "genres": [8001],
+        "players": 2,
+        "overview": "Invented description for fixture purposes."
+      }
+    ]
+  },
+  "remaining_monthly_allowance": 2996,
+  "extra_allowance": 0
+}

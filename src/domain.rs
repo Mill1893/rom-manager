@@ -188,6 +188,12 @@ impl FromStr for RelativePath {
 #[error("path must be a normalized relative path: {0}")]
 pub struct PathError(String);
 
+impl PathError {
+    pub fn of(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DeviceProfile {
     pub id: String,
@@ -452,6 +458,13 @@ impl SyncPlan {
 
     pub fn is_executable(&self) -> bool {
         self.blocked.is_empty()
+    }
+
+    /// Whether the recorded digest still matches the plan's contents. Used by
+    /// durable storage to revalidate a reloaded plan by identity rather than
+    /// trusting the bytes it was handed.
+    pub fn digest_is_valid(&self) -> bool {
+        self.has_valid_digest()
     }
 
     pub(crate) fn has_valid_digest(&self) -> bool {

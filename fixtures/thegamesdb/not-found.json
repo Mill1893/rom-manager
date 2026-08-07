@@ -1,0 +1,7 @@
+{
+  "code": 200,
+  "status": "Success",
+  "data": { "count": 0, "games": [] },
+  "remaining_monthly_allowance": 2994,
+  "extra_allowance": 0
+}

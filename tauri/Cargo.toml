@@ -1,0 +1,26 @@
+[package]
+name = "rom-manager-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "The ROM Manager desktop application"
+
+# Deliberately outside the library's workspace. Building this needs webkit2gtk
+# on Linux, and the library's own test job must stay buildable on a host that
+# has no GUI toolchain at all.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rom-manager = { path = ".." }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# No plugins. The webview gets events and a window title; it cannot reach the
+# filesystem, a shell, SQL, or the network through Tauri.
+tauri = { version = "2", features = ["devtools"] }
+
+[[bin]]
+name = "rom-manager"
+path = "src/main.rs"

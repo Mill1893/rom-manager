@@ -265,6 +265,29 @@ mod imp {
         value.encode_utf16().collect()
     }
 
+    /// Converts a Win32 path into an NT object-manager path.
+    ///
+    /// `std::fs::canonicalize` returns an **extended-length** path on Windows —
+    /// `\\?\C:\…` — and blindly prefixing `\??\` to that yields
+    /// `\??\\\?\C:\…`, which the object manager rejects with
+    /// `STATUS_OBJECT_NAME_INVALID`. The two prefixes mean the same thing in
+    /// different namespaces, so an existing one is replaced rather than stacked.
+    fn nt_object_path(path: &Path) -> String {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            // \\?\UNC\server\share -> \??\UNC\server\share
+            return format!(r"\??\UNC\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return format!(r"\??\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\") {
+            // A plain UNC path \\server\share.
+            return format!(r"\??\UNC\{rest}");
+        }
+        format!(r"\??\{text}")
+    }
+
     fn open_relative(
         root: Option<&OwnedHandle>,
         name: &mut [u16],
@@ -312,19 +335,42 @@ mod imp {
             )
         };
         if status != STATUS_SUCCESS {
-            return Err(io::Error::other(format!(
-                "NTSTATUS 0x{:08X}",
-                status as u32
-            )));
+            return Err(ntstatus_error(status));
         }
         Ok(unsafe { OwnedHandle::from_raw_handle(handle as _) })
+    }
+
+    /// Maps an NTSTATUS onto an `io::Error` **with its kind preserved**.
+    ///
+    /// Stringifying the status loses the kind, and callers genuinely branch on
+    /// it: the confined walk creates a missing directory only when an open
+    /// reports `NotFound`, so a status flattened to `Other` silently turned
+    /// "create the parent" into "fail". CI caught exactly that.
+    fn ntstatus_error(status: NTSTATUS) -> io::Error {
+        const STATUS_OBJECT_NAME_NOT_FOUND: NTSTATUS = 0xC000_0034_u32 as NTSTATUS;
+        const STATUS_OBJECT_PATH_NOT_FOUND: NTSTATUS = 0xC000_003A_u32 as NTSTATUS;
+        const STATUS_OBJECT_NAME_COLLISION: NTSTATUS = 0xC000_0035_u32 as NTSTATUS;
+        const STATUS_ACCESS_DENIED: NTSTATUS = 0xC000_0022_u32 as NTSTATUS;
+        const STATUS_SHARING_VIOLATION: NTSTATUS = 0xC000_0043_u32 as NTSTATUS;
+        const STATUS_REPARSE_POINT_ENCOUNTERED: NTSTATUS = 0xC000_050B_u32 as NTSTATUS;
+
+        let kind = match status {
+            STATUS_OBJECT_NAME_NOT_FOUND | STATUS_OBJECT_PATH_NOT_FOUND => io::ErrorKind::NotFound,
+            STATUS_OBJECT_NAME_COLLISION => io::ErrorKind::AlreadyExists,
+            STATUS_ACCESS_DENIED => io::ErrorKind::PermissionDenied,
+            // A reparse point refused mid-walk is the confinement guarantee
+            // firing, not a missing file — it must never look creatable.
+            STATUS_SHARING_VIOLATION | STATUS_REPARSE_POINT_ENCOUNTERED => io::ErrorKind::Other,
+            _ => io::ErrorKind::Other,
+        };
+        io::Error::new(kind, format!("NTSTATUS 0x{:08X}", status as u32))
     }
 
     impl Dir {
         pub fn open_root(root: &Path) -> io::Result<Self> {
             // The root is reached by a fully qualified name, then inspected: if
             // the root is itself a reparse point, OBJ_DONT_REPARSE refuses it.
-            let mut name = wide(&format!(r"\??\{}", root.display()));
+            let mut name = wide(&nt_object_path(root));
             open_relative(
                 None,
                 &mut name,
