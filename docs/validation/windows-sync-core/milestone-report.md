@@ -15,7 +15,7 @@ The single remaining blocking cause is **access to physical hardware** — a Win
 | Item | Value |
 | --- | --- |
 | Branch | `feat/durable-sync-state` (stacked on `feat/target-path-namespace` → `feat/sync-core-safety-foundation`) |
-| Packaged build | **none produced** |
+| Packaged build | Linux AppImage, 78 MB, built locally. **No Windows installer has been produced.** |
 | Toolchain | Rust 1.97.1, pinned by `rust-toolchain.toml` |
 | Durable schema version | 2 (`migrations/0001_initial.sql`, `migrations/0002_library.sql`) |
 | NES fixture identity | `ac46556f3c6a5e3a0ed4ce7a4a09dd05ae8b01d012f473d29201b1ec2a200946`, reproduced by `fixtures/nes/generate.mjs` |
@@ -32,7 +32,30 @@ The single remaining blocking cause is **access to physical hardware** — a Win
 | `x86_64-pc-windows-gnu` cross-compilation | Type-checking the Windows code paths | Compiles |
 | Windows CI runner, Server 2025 build 26100 | Native build, full suite, packaging | **Green** |
 | Packaged Windows host | Installed-application behaviour | **Never run** |
+| Linux desktop (WSLg, webkit2gtk 2.52.3) | The Tauri application and its AppImage | Exercised |
 | AYN Odin 3 | Physical WPD validation | **Never run** |
+
+## The desktop application
+
+For most of this milestone `tauri.conf.json` described an application that did
+not exist: no crate, no entry point, no icons, no frontend bundler. It exists
+now, and the following were observed rather than asserted on a Linux desktop:
+
+| Observation | Result |
+| --- | --- |
+| The application compiles and links | yes |
+| It launches and creates its window | yes |
+| It writes its database to the XDG data directory | yes — `~/.local/share/rom-manager/` |
+| An AppImage bundles | yes — 78 MB |
+| The AppImage runs with no system-wide install | yes |
+| The AppImage writes nothing into its own mount point | yes — state went to XDG |
+
+**What this does not establish.** No Windows installer has been produced, so
+nothing here speaks to NSIS, WebView2 bootstrapping, or the upgrade, uninstall,
+and reinstall boundaries [#35](https://github.com/Mill1893/rom-manager/issues/35)
+requires. The application's ROM Pack and Media Target catalogues are also
+deliberately empty — nominating those is unfinished work — so the wizard starts
+with nothing to choose and no end-to-end user journey has been walked.
 
 ## The tracer on a real Windows desktop
 
