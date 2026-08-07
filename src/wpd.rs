@@ -123,9 +123,19 @@ impl Worker {
                 let mut backend = match make_backend() {
                     Ok(backend) => backend,
                     Err(error) => {
-                        // The caller learns about it through the first reply
-                        // rather than through a panic on an unrelated thread.
-                        let _ = reply_tx.send(Reply::Failed(error));
+                        // Answer every request with the failure rather than
+                        // sending one unsolicited reply and exiting. Exiting
+                        // races the caller's send: the channel closes, the send
+                        // fails, and a device that never opened surfaces as a
+                        // disconnect instead of the real reason.
+                        for request in request_rx {
+                            if matches!(request, Request::Shutdown) {
+                                break;
+                            }
+                            if reply_tx.send(Reply::Failed(error.clone())).is_err() {
+                                break;
+                            }
+                        }
                         return;
                     }
                 };
