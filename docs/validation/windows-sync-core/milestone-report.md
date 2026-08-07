@@ -56,13 +56,39 @@ now, and the following were observed rather than asserted on a Linux desktop:
 | The AppImage runs with no system-wide install | yes |
 | The AppImage writes nothing into its own mount point | yes — state went to XDG |
 
+Re-observed on 2026-08-07 against the AppImage built from `c9b9b8a`, launched
+with a clean `HOME` so that every path it touched was attributable:
+
+| Observation | Result |
+| --- | --- |
+| Launches from the AppImage with no system-wide install | yes |
+| Creates its own state under the XDG data root | yes — `~/.local/share/rom-manager/` holding `library.sqlite3`, its `-wal` and `-shm`, and `library/` |
+| Cannot write into its own mount point | stronger than "did not" — the mount carries `ro,nosuid,nodev`, and an explicit `touch` inside it returns `Read-only file system` |
+| WebKitGTK's separate per-application directory | `~/.local/share/dev.mill1893.rom-manager/` — `WebKitCache`, `CacheStorage`, `storage`, `mediakeys`, `hsts-storage.sqlite` |
+
+That last row is recorded because it looks worse than it is, and someone
+auditing this will find it. `hsts-storage.sqlite` is HTTP Strict Transport
+Security state: WebKitGTK creates its network-session files when the web
+process starts, whether or not anything is ever fetched. It is not evidence of
+network access. It is also not evidence of the *absence* of network access —
+that claim rests on the dependency audit below, not on this directory.
+
 **What this does not establish.** An unsigned NSIS installer now builds in CI,
 but nobody has run it. Nothing here speaks to WebView2 bootstrapping or to the
 upgrade, uninstall, and reinstall boundaries
 [#35](https://github.com/Mill1893/rom-manager/issues/35) requires — those are
-observations about an *installed* application, and there has not been one. The application's ROM Pack and Media Target catalogues are also
-deliberately empty — nominating those is unfinished work — so the wizard starts
-with nothing to choose and no end-to-end user journey has been walked.
+observations about an *installed* application, and there has not been one.
+
+Nominating ROM Packs and Media Targets is no longer unfinished:
+[#78](https://github.com/Mill1893/rom-manager/pull/78) added
+`pick_import_folder`, `pick_media_target`, and `scan_import_folders`, so a
+fresh install can be given something to work with. But a fresh install still
+starts empty by design, and **no end-to-end user journey through the interface
+has been walked here.** The wizard's steps are covered at the command level by
+`tests/desktop_session.rs` — including `what_the_plan_wanted_is_what_reached_the_device` —
+which is a different claim: it exercises the commands the interface calls, not
+the interface. Nobody has clicked through this application and watched a ROM
+reach a device.
 
 ## The tracer on a real Windows desktop
 
