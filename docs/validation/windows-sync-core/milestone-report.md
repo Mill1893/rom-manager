@@ -194,16 +194,20 @@ Hashing and transfer baselines against real media are unmeasured.
 
 ## Privacy
 
-| Check | Result |
-| --- | --- |
-| Full suite with the network denied | **123 tests pass** inside a network namespace with no interfaces |
-| Network-capable crates in the dependency tree | **None** — no reqwest, hyper, tokio, curl, ureq, rustls, or native-tls |
-| Network APIs in application source | **None** — no `std::net`, `TcpStream`, or `UdpSocket` |
-| UI runtime dependencies | **None** — `dependencies` is empty; React and the test tools are dev-only |
-| Telemetry-shaped identifiers | **None** found in Rust or TypeScript source |
-| WebView capability | Events and window title only; no fs, sql, shell, http, or updater plugin is depended on |
+| Check | Result | Enforced |
+| --- | --- | --- |
+| Full suite with the network denied | **513 tests pass** inside a network namespace with no interfaces | CI, every push — `unshare -rn cargo test --all-targets` |
+| Network-capable crates in the dependency tree | **None** in the default feature set | CI — `scripts/assert-no-network-capability.sh` |
+| Network APIs in application source | **None** — no `std::net`, `TcpStream`, `TcpListener`, `UdpSocket`, or `SocketAddr` | CI — same script |
+| UI runtime dependencies | **None** — `dependencies` is absent; React and the test tools are dev-only | CI — same script |
+| Telemetry-shaped identifiers | **None** found in Rust or TypeScript source | **Hand-checked 2026-08-06.** Nothing re-checks this |
+| WebView capability | Events and window title only; no fs, sql, shell, http, or updater plugin is depended on | Structural — no such plugin is compiled in |
 
-The application cannot reach the network, because nothing in it can open a socket. Provider lookup ([#30](https://github.com/Mill1893/rom-manager/issues/30)) will introduce the first network capability and is explicitly opt-in.
+The application cannot reach the network, because nothing in it can open a socket. Provider lookup ([#30](https://github.com/Mill1893/rom-manager/issues/30)) will introduce the first network capability and is explicitly opt-in behind the `provider-http` feature.
+
+**These were prose until 2026-08-07**, verified by hand once and never since — and the first row had already drifted, citing 123 tests against a suite that had grown to 513. Four of the six are now checked on every push. The check verifies itself as well as the tree: it re-runs its own crate detector against `--features provider-http`, where the answer is known to be yes, so a typo in the pattern cannot leave it passing while testing nothing.
+
+**What this does not establish.** The crate check is a deny-list, and a deny-list cannot be complete — a network client under an unfamiliar name would pass it. The network-denied run is the check that does not depend on knowing any names, and it is the one to trust. Neither says anything about the *packaged* application's behaviour on a host, which is [#37](https://github.com/Mill1893/rom-manager/issues/37) and [#77](https://github.com/Mill1893/rom-manager/issues/77) and needs a person with the installer and a disconnected cable.
 
 ## Accessibility
 
