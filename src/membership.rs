@@ -123,7 +123,7 @@ fn signature_agrees(extension: &str, magic: &[u8]) -> bool {
         "rtf" => starts(b"{\\rtf"),
         // Text classes: any NUL means this is not the text it claims to be.
         "txt" | "nfo" | "md" | "sfv" | "md5" | "sha1" | "sha256" | "json" | "xml" | "yaml"
-        | "yml" => !magic.contains(&0),
+        | "yml" | "url" | "webloc" => !magic.contains(&0),
         _ => true,
     }
 }

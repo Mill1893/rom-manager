@@ -205,6 +205,10 @@ pub struct Container {
     pub content_digest: String,
     /// `(member_path, content_digest, size)`, sorted by member path.
     pub members: Vec<(String, String, u64)>,
+    /// Whether this import added the archive's bytes to the Library, as opposed
+    /// to recognising content it already owned. Reported so a caller can tell a
+    /// re-scan from a first import without comparing counts.
+    pub stored_new_object: bool,
 }
 
 impl Library {
@@ -234,6 +238,7 @@ impl Library {
         Ok(Container {
             content_digest: imported.content_digest,
             members,
+            stored_new_object: imported.stored_new_object,
         })
     }
 
@@ -274,6 +279,62 @@ impl Library {
 /// Directory entries are skipped — they are structure, not content. A member
 /// whose name escapes the archive root is refused outright rather than
 /// sanitized, on the same footing as the target-path namespace rules.
+/// One member of a Source Container, as read from it.
+///
+/// Carries `magic` because [`membership::classify`](crate::membership::classify)
+/// refuses to trust an extension on its own: a member is ignorable only when its
+/// signature agrees with its name, or an archive could hide a second game behind
+/// a `readme.txt`.
+#[derive(Clone, Debug)]
+pub struct MemberRead {
+    pub path: String,
+    pub digest: String,
+    pub size: u64,
+    pub magic: Vec<u8>,
+}
+
+/// Reads a Source Container's members without importing anything.
+///
+/// Separate from [`Library::import_archive`] because the decision of *whether*
+/// this archive establishes a ROM Set has to be made before its bytes are taken
+/// into the Library. An ambiguous archive is reported, not owned.
+pub fn read_container_members(source: &Path) -> Result<Vec<MemberRead>, ImportError> {
+    let file = fs::File::open(source).map_err(|error| ImportError::Source(error.to_string()))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|error| ImportError::Archive(error.to_string()))?;
+
+    let mut members = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry
+            .enclosed_name()
+            .ok_or_else(|| ImportError::UnsafeMember(entry.name().to_owned()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| ImportError::Archive(error.to_string()))?;
+
+        members.push(MemberRead {
+            path: name,
+            digest: sha256(&bytes),
+            size: bytes.len() as u64,
+            // Enough for every signature `classify` checks, and bounded so a
+            // large member costs no more to classify than a small one.
+            magic: bytes.iter().take(32).copied().collect(),
+        });
+    }
+    members.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(members)
+}
+
 fn read_zip_members(source: &Path) -> Result<Vec<(String, String, u64)>, ImportError> {
     let file = fs::File::open(source).map_err(|error| ImportError::Source(error.to_string()))?;
     let mut archive =
