@@ -44,7 +44,15 @@ jobs:
       # it. `unshare -rn` leaves the process with loopback only, and down.
       - name: Run the suite with the network denied
         if: runner.os == 'Linux'
-        run: unshare -rn cargo test --all-targets
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces through
+          # AppArmor, so `unshare -r` cannot write /proc/self/uid_map and the
+          # namespace is never created. Lift that for the runner rather than
+          # reaching for `sudo unshare -n`: root is refused nothing, which is
+          # the wrong environment for a suite whose subject is what gets
+          # refused.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn cargo test --all-targets
       - name: Type-check and test the UI
         working-directory: ui
         run: |
