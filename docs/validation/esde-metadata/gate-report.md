@@ -60,7 +60,7 @@ The first release exports device metadata only for the version-pinned **ES-DE on
 
 - **Accessibility of the metadata workflow** — the UI does not exist yet ([#34](https://github.com/Mill1893/rom-manager/issues/34)).
 - **A real ES-DE installation.** Every test uses synthetic gamelists shaped like ES-DE's. Nothing here has been read by ES-DE itself, which is [#38](https://github.com/Mill1893/rom-manager/issues/38)'s territory on the Odin.
-- **MTP metadata publication.** The atomicity limit is modelled and disclosed but never exercised against a device.
+- **MTP metadata publication.** The atomicity limit is modelled and disclosed but never exercised against a device. What *is* covered over an MTP-like transport, and what still needs the Odin, is set out in the [transport coverage report](../esde-metadata-transport/gate-report.md).
 - ~~**Any CI result.**~~ **Superseded 2026-08-07** — see the disposition above.
 
 ## Required before this gate can close
