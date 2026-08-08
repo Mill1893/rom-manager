@@ -8,6 +8,7 @@ mod cache;
 mod combined;
 mod confined;
 pub mod containers;
+pub mod decode;
 pub mod descriptors;
 mod domain;
 mod durable;
