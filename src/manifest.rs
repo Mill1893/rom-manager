@@ -158,6 +158,21 @@ pub const SIDECAR_DOCUMENTATION: &[&str] = &["txt", "nfo", "md", "rtf", "pdf"];
 pub const SIDECAR_IMAGES: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 pub const SIDECAR_CHECKSUMS: &[&str] = &["sfv", "md5", "sha1", "sha256"];
 pub const SIDECAR_METADATA: &[&str] = &["json", "xml", "yaml", "yml"];
+/// Shortcut files, which record where a download came from.
+///
+/// Its own class rather than an awkward guest of another: a `.url` is neither
+/// documentation nor metadata about the content, it is a pointer to a website,
+/// and filing it under either would make both lists mean less. Ignorable for
+/// the same reason a README is — real archives carry them, and refusing a game
+/// over a 112-byte shortcut helps nobody. It is text-shaped, so it is held to
+/// the same no-NUL check as the other text classes.
+///
+/// `.desktop` is deliberately not here. It looks like a sibling of these two
+/// and is not: a desktop entry carries an `Exec=` line, so it describes a
+/// command rather than a location. Nothing here executes an archive member, but
+/// an allowlist earns its keep by being boring, and "the launcher format" is
+/// not a boring entry.
+pub const SIDECAR_LINKS: &[&str] = &["url", "webloc"];
 
 /// Operating-system droppings that are ignored wherever they appear.
 pub const SIDECAR_OS_METADATA: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
@@ -180,6 +195,7 @@ pub fn is_sidecar_extension(extension: &str) -> bool {
         || SIDECAR_IMAGES.contains(&extension)
         || SIDECAR_CHECKSUMS.contains(&extension)
         || SIDECAR_METADATA.contains(&extension)
+        || SIDECAR_LINKS.contains(&extension)
 }
 
 /// Whether a declared value is inside an accepted set.

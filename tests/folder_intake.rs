@@ -714,3 +714,55 @@ fn the_archive_is_what_the_library_stores() {
         .expect("the container's bytes are owned");
     assert_eq!(stored, archive_bytes);
 }
+
+#[test]
+fn a_download_site_shortcut_does_not_cost_the_user_the_game() {
+    // Observed on two archives in a real 263-game collection: a 112-byte
+    // `CDRomance.url` beside the ROM made the whole archive ambiguous. A
+    // shortcut is a pointer to a website, never content, and refusing a game
+    // over one helps nobody.
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Kaeru.zip"),
+        &[
+            ("Kaeru.nes", ROM_BYTES),
+            (
+                "CDRomance.url",
+                b"[InternetShortcut]\r\nURL=https://example.invalid/\r\n",
+            ),
+        ],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.declined.is_empty(), "{:?}", report.declined);
+    assert_eq!(report.rom_sets.len(), 1);
+}
+
+#[test]
+fn a_shortcut_that_is_really_a_binary_still_makes_the_archive_ambiguous() {
+    // The bound on the allowlist is what makes it safe: a member is ignorable
+    // only when its signature agrees with its name. Otherwise "call the second
+    // game CDRomance.url" would walk straight past the ambiguity check.
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Sneaky.zip"),
+        &[
+            ("Sneaky.nes", ROM_BYTES),
+            (
+                "looks-like-a-link.url",
+                b"\x00\x01\x02 binary, not a shortcut",
+            ),
+        ],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(
+        report.rom_sets.is_empty(),
+        "a mismatched sidecar is not ignorable"
+    );
+    assert_eq!(report.declined.len(), 1);
+}
