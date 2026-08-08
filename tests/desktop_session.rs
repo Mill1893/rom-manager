@@ -468,3 +468,27 @@ fn remembering_the_same_folder_twice_records_it_once() {
     assert_eq!(first, second);
     assert_eq!(session.import_folders().unwrap().len(), 1);
 }
+
+#[test]
+fn nominating_the_same_place_across_a_second_boundary_is_still_one_target() {
+    // The regression this guards. Target identity was seeded with the wall
+    // clock in seconds, so nominating one card twice produced one target or
+    // two depending on whether the calls happened to land in the same second.
+    // `nominating_the_same_place_twice_does_not_create_two_targets` passed
+    // almost always and failed under a loaded parallel run, which is the worst
+    // way for an identity bug to present: it looks like a flaky test.
+    //
+    // Sleeping past a second boundary makes the old behaviour fail every time.
+    let mut session = bare_session(true);
+    let first = session.nominate_media_target(LOCATOR, "Card").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let second = session
+        .nominate_media_target(LOCATOR, "Card again")
+        .unwrap();
+
+    assert_eq!(
+        first.target_id, second.target_id,
+        "one card is one Media Target however long the user took to click twice"
+    );
+    assert_eq!(session.available_targets().len(), 1);
+}

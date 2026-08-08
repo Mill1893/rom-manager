@@ -262,6 +262,19 @@ impl Store {
         Ok(rows)
     }
 
+    /// The Media Target already reached through this locator, if any.
+    ///
+    /// The reverse of [`Self::bindings_for`], and the reason nomination can be
+    /// idempotent: asked about the same place twice, the application recognises
+    /// the target it already has rather than minting a second one.
+    pub fn target_at(&self, locator: &str) -> Result<Option<String>, StoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT target_id FROM transport_binding WHERE locator = ?1 LIMIT 1")?;
+        let mut rows = statement.query_map(params![locator], |row| row.get::<_, String>(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
     pub fn bindings_for(&self, target_id: &str) -> Result<Vec<String>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT locator FROM transport_binding WHERE target_id = ?1 ORDER BY locator",

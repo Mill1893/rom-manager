@@ -279,7 +279,15 @@ impl<T: Transport> Session<T> {
 
         let target_id = match existing {
             Some(marker) => marker.target_id,
-            None => mint_target_id(locator),
+            // No marker, so this place has not been claimed. If the application
+            // already knows a target reached through this locator, it is that
+            // one: asking about the same folder twice is one place, not two.
+            // Minting again here is what produced a second Media Target for one
+            // card whenever the two nominations straddled a second.
+            None => match self.store.target_at(locator)? {
+                Some(known) => known,
+                None => mint_target_id(locator),
+            },
         };
 
         self.store.upsert_target(&target_id, 1)?;
@@ -583,11 +591,23 @@ impl<T: Transport> Session<T> {
 
 /// A fresh Media Target identity for a directory with no marker.
 ///
-/// Derived from the locator and the clock so two cards nominated from the same
-/// mount point at different times are different targets. It is written into the
-/// marker at initialization, and from then on the marker is the identity — this
-/// value is never re-derived, so a later change of locator cannot change who
-/// the target is.
+/// Derived from the locator and the clock, and used only the **first** time a
+/// place is nominated — [`Session::nominate_media_target`] reuses the target it
+/// already knows at a locator rather than calling this again. It is written
+/// into the marker at initialization, and from then on the marker is the
+/// identity, so a later change of locator cannot change who the target is.
+///
+/// # What the clock does and does not buy
+///
+/// It separates two cards first nominated at the same mount point in different
+/// sessions, which a locator alone could not. It cannot separate two cards
+/// nominated at the same mount point when neither has been claimed — nothing
+/// observable distinguishes them, and no seed can invent that.
+///
+/// This once read that the clock made two cards at one mount point different
+/// targets, full stop. It did not: nominating the same card twice minted two
+/// targets whenever the calls straddled a second, and the contradiction was
+/// settled by timing rather than by intent.
 fn mint_target_id(locator: &str) -> String {
     let seed = format!("{locator}:{}", now());
     format!("target-{}", &crate::sha256(seed.as_bytes())[..16])
