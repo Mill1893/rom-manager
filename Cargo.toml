@@ -26,6 +26,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 thiserror = "2.0"
 unicode-normalization = "0.1"
+chd = "0.3.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
