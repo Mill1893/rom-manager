@@ -4,7 +4,11 @@ Evidence for [Certify the ES-DE metadata coexistence gate](https://github.com/Mi
 
 ## Disposition
 
-**Blocked on CI only.** Every behavioural criterion is implemented and covered by tests that pass locally. Like gate 2, this gate needs a combined **filesystem** target — not a device, not a packaged installer, not physical hardware. The one outstanding item is that **GitHub Actions has never executed on this repository**.
+**Evidenced.** Every behavioural criterion is implemented and covered by tests. Like gate 2, this gate needs a combined **filesystem** target — not a device, not a packaged installer, not physical hardware.
+
+**Superseded on 2026-08-07.** This section previously read "Blocked on CI only", the one outstanding item being that GitHub Actions had never executed on this repository. It has since run on every push and is green on both hosts — run [`31221804858`](https://github.com/Mill1893/rom-manager/actions/runs/31221804858) on `main` at `af857fb`, with 513 Rust tests on Linux, 503 natively on Windows Server 2025, and 62 UI tests. See the [Library import gate report](../library-import/gate-report.md) for the breakdown of the ten `cfg(unix)` tests that do not run on Windows.
+
+That closes the only item this report named. The criteria below were already met when it was written.
 
 ## Scope
 
@@ -57,10 +61,10 @@ The first release exports device metadata only for the version-pinned **ES-DE on
 - **Accessibility of the metadata workflow** — the UI does not exist yet ([#34](https://github.com/Mill1893/rom-manager/issues/34)).
 - **A real ES-DE installation.** Every test uses synthetic gamelists shaped like ES-DE's. Nothing here has been read by ES-DE itself, which is [#38](https://github.com/Mill1893/rom-manager/issues/38)'s territory on the Odin.
 - **MTP metadata publication.** The atomicity limit is modelled and disclosed but never exercised against a device.
-- **Any CI result.**
+- ~~**Any CI result.**~~ **Superseded 2026-08-07** — see the disposition above.
 
 ## Required before this gate can close
 
-1. **Enable GitHub Actions** and confirm these suites pass on both hosts.
+1. ~~**Enable GitHub Actions** and confirm these suites pass on both hosts.~~ **Done.** Green on both, on every push.
 2. Build the metadata workflow UI and cover its accessibility.
 3. Read an exported gamelist with a real ES-DE installation, ideally on the Odin during [#38](https://github.com/Mill1893/rom-manager/issues/38).
