@@ -38,6 +38,7 @@ use crate::{
     Library, Skipped, Store,
     formats::{BASELINE, Representation, Support, may_stand_alone},
     library::ImportError,
+    membership,
     outcomes::{Diagnostic, Location, Outcome, ReasonCode},
     sha256,
 };
@@ -141,6 +142,134 @@ fn declined(path: &Path, outcome: Outcome, reason: ReasonCode) -> Diagnostic {
     Diagnostic::new(outcome, reason).at(Location::in_source(path.to_string_lossy().into_owned()))
 }
 
+/// Extensions that package content rather than being content.
+///
+/// Only `.zip` for now. #17 puts 7z behind a pinned private libarchive build
+/// and a supervised worker, so it is deliberately not listed here — an
+/// unreadable `.7z` should say so rather than be declined as an unknown
+/// extension, but that wants the decoder it does not yet have.
+fn is_container(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case(".zip")
+}
+
+/// Takes in an archive that establishes exactly one ROM Set.
+///
+/// The archive is what gets imported — stored byte-for-byte as a Source
+/// Container — while the ROM Set is identified by the **member's** digest. That
+/// split is #17's: "source compression layout … [is] not proof of equality", so
+/// the same ROM zipped twice with different compression is one ROM Set reached
+/// through two containers, not two games.
+///
+/// Membership is decided by [`membership::assess`] rather than re-derived here,
+/// so the one-archive-one-set rule and the sidecar bound have a single home.
+fn take_in_container(
+    library: &Library,
+    store: &Store,
+    path: &Path,
+    now: i64,
+) -> Result<RomSetSummary, Diagnostic> {
+    let members = crate::library::read_container_members(path).map_err(|error| {
+        declined(path, Outcome::Invalid, ReasonCode::MalformedStructure)
+            .for_format(error.to_string())
+    })?;
+
+    let assessed = membership::assess(
+        &members
+            .iter()
+            .map(|member| membership::Member {
+                path: member.path.clone(),
+                size: member.size,
+                magic: member.magic.clone(),
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    // `content` holds the members forming the one ROM Set, and is empty for
+    // every refusal. Anything other than exactly one playable member is the
+    // ambiguity `assess` exists to report.
+    let [content] = assessed.content.as_slice() else {
+        let reported =
+            assessed.diagnostics.into_iter().next().unwrap_or_else(|| {
+                Diagnostic::new(assessed.outcome, ReasonCode::AmbiguousMembership)
+            });
+        return Err(reported.at(Location::in_source(path.to_string_lossy().into_owned())));
+    };
+
+    let member = members
+        .iter()
+        .find(|candidate| &candidate.path == content)
+        .ok_or_else(|| declined(path, Outcome::Invalid, ReasonCode::MalformedStructure))?;
+
+    let member_extension = format!(
+        ".{}",
+        content
+            .rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .to_lowercase()
+    );
+    let platform = match platform_for(&member_extension) {
+        PlatformMatch::One(platform) => platform,
+        // The archive is fine; which system its ROM belongs to is not
+        // knowable. Reported against the member, because that is the file the
+        // user would have to look at.
+        PlatformMatch::Several => {
+            return Err(declined(
+                path,
+                Outcome::NeedsPlatform,
+                ReasonCode::PlatformUndetermined,
+            )
+            .at(Location::in_source(path.to_string_lossy().into_owned()).within(content.clone())));
+        }
+        PlatformMatch::None => {
+            return Err(
+                declined(path, Outcome::Unsupported, ReasonCode::UnknownExtension)
+                    .at(Location::in_source(path.to_string_lossy().into_owned())
+                        .within(content.clone())),
+            );
+        }
+    };
+
+    let container = library.import_archive(store, path, now).map_err(|error| {
+        declined(path, Outcome::IoFailure, ReasonCode::ReadFailed).for_format(error.to_string())
+    })?;
+
+    let title = title_from(Path::new(content.as_str()));
+    let short = &member.digest[..16];
+    let rom_set_id = format!("rom-set-{short}");
+    let game_id = format!(
+        "game-{}",
+        &sha256(format!("{platform}:{title}").as_bytes())[..16]
+    );
+    let release_id = format!("release-{short}");
+
+    store
+        .upsert_rom_set(
+            (game_id.as_str(), platform, title.as_str()),
+            (release_id.as_str(), "Unknown"),
+            (
+                rom_set_id.as_str(),
+                member.digest.as_str(),
+                content.as_str(),
+                member.size,
+            ),
+        )
+        .map_err(|error| {
+            declined(path, Outcome::IoFailure, ReasonCode::ReadFailed).for_format(error.to_string())
+        })?;
+
+    Ok(RomSetSummary {
+        rom_set_id,
+        title,
+        platform: platform.to_owned(),
+        content_digest: member.digest.clone(),
+        // The archive is what was stored, so whether this scan added bytes to
+        // the Library is a fact about the container, not about the member —
+        // whose bytes are reproduced from it rather than kept.
+        newly_stored: container.stored_new_object,
+    })
+}
+
 /// Scans `folder`, takes in every recognized standalone ROM, and gathers the
 /// result into a ROM Pack named for the folder.
 ///
@@ -214,6 +343,21 @@ pub fn take_in(
 
     for path in candidates {
         let extension = extension_of(&path);
+
+        // A Source Container is not itself content, so the extension rules
+        // below cannot speak for it: `.zip` matches no Platform and would be
+        // declined as unknown, which is how an ordinary collection — where
+        // every game is its own archive — imported nothing at all.
+        if is_container(&extension) {
+            match take_in_container(library, store, &path, now) {
+                Ok(summary) => {
+                    in_pack.push(summary.clone());
+                    report.rom_sets.push(summary);
+                }
+                Err(diagnostic) => report.declined.push(diagnostic),
+            }
+            continue;
+        }
 
         if !may_stand_alone(&extension) {
             // A track, not a game. Only a descriptor may claim it.

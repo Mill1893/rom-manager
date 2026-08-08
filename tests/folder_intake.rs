@@ -540,3 +540,177 @@ fn the_snapshot_carries_what_the_scan_refused_and_why() {
     assert!(codes.contains(&"platform_undetermined"), "{codes:?}");
     assert!(codes.contains(&"unknown_extension"), "{codes:?}");
 }
+
+// ── Source Containers ───────────────────────────────────────────────────────
+//
+// A ROM collection is normally distributed as one archive per game, so this is
+// the path most real folders take. It was unreachable until now: `.zip` matches
+// no Platform, so every archive was declined as an unknown extension and a
+// whole collection imported nothing.
+
+/// Writes a ZIP holding `members`. `comment` lets two archives with identical
+/// members still differ byte-for-byte, which is how the tests below tell the
+/// container's identity apart from the ROM's.
+fn write_zip(path: &Path, members: &[(&str, &[u8])], comment: &str) {
+    use std::io::Write;
+    let file = fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in members {
+        zip.start_file(*name, options).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.set_comment(comment);
+    zip.finish().unwrap();
+}
+
+#[test]
+fn an_archive_holding_one_rom_becomes_one_rom_set() {
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Tracers.zip"),
+        &[("Tracers.nes", ROM_BYTES)],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.declined.is_empty(), "{:?}", report.declined);
+    assert_eq!(report.rom_sets.len(), 1);
+    assert_eq!(report.rom_sets[0].platform, "Nintendo Entertainment System");
+    assert_eq!(
+        report.rom_sets[0].title, "Tracers",
+        "the title comes from the member, not from the archive"
+    );
+}
+
+#[test]
+fn the_same_rom_in_two_different_archives_is_one_rom_set() {
+    // The load-bearing one. #17: "source compression layout ... [is] not proof
+    // of equality." Two archives differing byte-for-byte, holding identical
+    // ROMs, are two Source Containers reaching one game — not two games.
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("first.zip"),
+        &[("Tracers.nes", ROM_BYTES)],
+        "packed on one day",
+    );
+    write_zip(
+        &fixture.incoming.join("second.zip"),
+        &[("Tracers.nes", ROM_BYTES)],
+        "packed on another",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.declined.is_empty(), "{:?}", report.declined);
+    let ids: std::collections::BTreeSet<_> = report
+        .rom_sets
+        .iter()
+        .map(|set| set.rom_set_id.clone())
+        .collect();
+    assert_eq!(
+        ids.len(),
+        1,
+        "identity must come from the member's bytes, not the container's"
+    );
+}
+
+#[test]
+fn an_archive_holding_two_games_is_ambiguous_rather_than_a_guess() {
+    // There is no honest answer to "which game is this?", and every way of
+    // guessing produces a Library entry that is confidently wrong.
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Both.zip"),
+        &[
+            ("One.nes", ROM_BYTES),
+            ("Two.nes", b"a second rom entirely"),
+        ],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.rom_sets.is_empty(), "nothing may be taken in");
+    assert_eq!(report.declined.len(), 1);
+    assert_eq!(report.declined[0].outcome, Outcome::Ambiguous);
+}
+
+#[test]
+fn readmes_and_box_art_do_not_make_an_archive_ambiguous() {
+    // Real archives carry documentation and images. Refusing those would reject
+    // most of what people actually have.
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Tracers.zip"),
+        &[
+            ("Tracers.nes", ROM_BYTES),
+            ("Readme.txt", b"notes about this dump"),
+            ("__MACOSX/._Tracers.nes", b"os dropping"),
+        ],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.declined.is_empty(), "{:?}", report.declined);
+    assert_eq!(report.rom_sets.len(), 1);
+}
+
+#[test]
+fn an_archive_whose_member_is_unsupported_says_so_against_the_member() {
+    let fixture = fixture();
+    write_zip(
+        &fixture.incoming.join("Mystery.zip"),
+        &[("game.qqq", b"not a format this release accepts")],
+        "",
+    );
+
+    let report = fixture.take_in();
+
+    assert!(report.rom_sets.is_empty());
+    assert_eq!(report.declined.len(), 1);
+    // Ambiguous, not UnknownExtension: an unclassifiable member is exactly what
+    // the membership rules refuse, and they run before any Platform lookup.
+    assert_eq!(report.declined[0].outcome, Outcome::Ambiguous);
+}
+
+#[test]
+fn a_file_that_is_not_really_an_archive_is_reported_as_malformed() {
+    // Observed in a real collection: one `.zip` among hundreds was not a ZIP at
+    // all. It must not be taken in as opaque complete content.
+    let fixture = fixture();
+    fixture.place("Broken.zip", b"PK\x03\x04 and then nonsense");
+
+    let report = fixture.take_in();
+
+    assert!(report.rom_sets.is_empty());
+    assert_eq!(report.declined.len(), 1);
+    assert_eq!(report.declined[0].outcome, Outcome::Invalid);
+    assert_eq!(
+        report.declined[0].reason,
+        ReasonCode::MalformedStructure,
+        "a broken container is malformed, not an unknown extension"
+    );
+}
+
+#[test]
+fn the_archive_is_what_the_library_stores() {
+    // The ROM is a derived materialization reproduced from the container on
+    // demand, so what lands in app-owned storage is the archive's bytes.
+    let fixture = fixture();
+    let archive = fixture.incoming.join("Tracers.zip");
+    write_zip(&archive, &[("Tracers.nes", ROM_BYTES)], "");
+    let archive_bytes = fs::read(&archive).unwrap();
+
+    let report = fixture.take_in();
+    assert_eq!(report.rom_sets.len(), 1);
+
+    let stored = fixture
+        .library
+        .read_object(&rom_manager::sha256(&archive_bytes))
+        .expect("the container's bytes are owned");
+    assert_eq!(stored, archive_bytes);
+}
