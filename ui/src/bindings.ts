@@ -140,8 +140,18 @@ export interface ScanSummary {
 /** The authority. Every command returns one; the UI replaces what it holds. */
 export interface Snapshot {
   readonly step: WizardStep;
+  /** The chosen ROM Pack, or null when the user has not chosen one yet. */
   readonly romPack: RomPackChoice | null;
+  /** The chosen Media Target, or null when the user has not chosen one yet. */
   readonly mediaTarget: MediaTargetChoice | null;
+  /**
+   * Every ROM Pack the Library holds. Distinct from `romPack`, which is only
+   * what has been *chosen* — treating the two as the same is what made the
+   * interface tell someone with 261 games that they had none.
+   */
+  readonly availablePacks: readonly RomPackChoice[];
+  /** Every remembered Media Target, connected or not. */
+  readonly availableTargets: readonly MediaTargetChoice[];
   readonly plan: PlanView | null;
   readonly progress: Progress | null;
   readonly outcome: OutcomeView | null;

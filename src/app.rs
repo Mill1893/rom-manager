@@ -53,6 +53,18 @@ pub struct Snapshot {
     pub step: WizardStep,
     pub rom_pack: Option<RomPackChoice>,
     pub media_target: Option<MediaTargetChoice>,
+    /// Every ROM Pack the Library holds, whether or not one is chosen.
+    ///
+    /// Without this the interface could not tell an empty Library from an
+    /// unmade choice, and showed "No ROM Packs yet" to someone holding 261
+    /// games. Worse, it could not offer the first selection at all: the only
+    /// control able to call `select_rom_pack` was disabled until something was
+    /// already selected.
+    pub available_packs: Vec<RomPackChoice>,
+    /// Every Media Target the application remembers, connected or not. A
+    /// disconnected card is still a place the user has, and saying so is more
+    /// use than omitting it.
+    pub available_targets: Vec<MediaTargetChoice>,
     pub plan: Option<PlanView>,
     pub progress: Option<Progress>,
     pub outcome: Option<OutcomeView>,

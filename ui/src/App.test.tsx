@@ -35,6 +35,10 @@ function snapshot(step: WizardStep, extra: Partial<Snapshot> = {}): Snapshot {
     step,
     romPack: null,
     mediaTarget: null,
+    // Empty by default, so a test that says nothing about the catalogue gets
+    // the genuinely-empty-Library case rather than an accidental one.
+    availablePacks: [],
+    availableTargets: [],
     plan: null,
     progress: null,
     outcome: null,
@@ -157,20 +161,29 @@ describe("the device step", () => {
       snapshot(
         { step: "selectMediaTarget" },
         {
-          mediaTarget: {
-            targetId: "target-1",
-            label: "Odin SD card",
-            bindingLocator: null,
-            connected: false,
-          },
+          availableTargets: [
+            {
+              targetId: "target-1",
+              label: "Odin SD card",
+              bindingLocator: null,
+              connected: false,
+            },
+          ],
         },
       ),
     );
 
     render(<App />);
 
-    expect(await screen.findByText(/Odin SD card/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
+    // Listed rather than hidden — a row that disappears when the card is
+    // unplugged looks like the application forgot the device.
+    const device = await screen.findByRole("button", { name: /Odin SD card/ });
+    expect(device).toBeInTheDocument();
+    expect(device).toHaveTextContent(/not connected/i);
+    // The property this test has always protected: a disconnected device
+    // cannot be chosen. Selection moved onto the row itself, so that is where
+    // the refusal now lives.
+    expect(device).toBeDisabled();
   });
 });
 
@@ -323,5 +336,67 @@ describe("what a scan refused", () => {
     render(<App />);
     await screen.findByRole("heading", { name: /last scan/i });
     expect(screen.queryByRole("heading", { name: /not added/i })).toBeNull();
+  });
+});
+
+describe("the catalogue is what the user sees", () => {
+  it("offers the ROM Packs the Library holds, before anything is chosen", async () => {
+    // The regression. `romPack` is the *chosen* pack and was the only thing
+    // this step could see, so a Library holding 261 games rendered as
+    // "No ROM Packs yet" with no way to select any of them.
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        {
+          romPack: null,
+          availablePacks: [
+            { romPackId: "pack-gb", revision: 1, title: "Nintendo - Game Boy", romSetCount: 261 },
+          ],
+        },
+      ),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Nintendo - Game Boy/ })).toBeInTheDocument();
+    expect(screen.queryByText(/No ROM Packs yet/)).not.toBeInTheDocument();
+  });
+
+  it("still says the Library is empty when it actually is", async () => {
+    // The other half. An unmade choice and an empty Library are different
+    // situations, and collapsing them is what caused the bug above.
+    withBridge();
+    invoke.mockResolvedValue(snapshot({ step: "selectRomPack" }, { availablePacks: [] }));
+
+    render(<App />);
+
+    expect(await screen.findByText(/No ROM Packs yet/)).toBeInTheDocument();
+  });
+
+  it("selects a pack straight from the list", async () => {
+    withBridge();
+    invoke.mockResolvedValue(
+      snapshot(
+        { step: "selectRomPack" },
+        {
+          availablePacks: [
+            { romPackId: "pack-gb", revision: 3, title: "Game Boy", romSetCount: 261 },
+          ],
+        },
+      ),
+    );
+
+    render(<App />);
+    const pack = await screen.findByRole("button", { name: /Game Boy/ });
+    invoke.mockClear();
+    await userEvent.click(pack);
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("select_rom_pack", {
+        romPackId: "pack-gb",
+        revision: 3,
+      }),
+    );
   });
 });

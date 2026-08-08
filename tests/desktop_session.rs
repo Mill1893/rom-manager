@@ -492,3 +492,34 @@ fn nominating_the_same_place_across_a_second_boundary_is_still_one_target() {
     );
     assert_eq!(session.available_targets().len(), 1);
 }
+
+#[test]
+fn the_snapshot_carries_the_packs_the_library_holds_before_one_is_chosen() {
+    // The interface can only offer what the snapshot contains. It carried the
+    // *chosen* pack and nothing else, so a Library holding hundreds of games
+    // was rendered as "No ROM Packs yet" — and the only control that could
+    // have selected one was disabled until one already was.
+    let session = bare_session(true);
+    let snapshot = session.snapshot();
+
+    assert!(snapshot.rom_pack.is_none(), "nothing is chosen yet");
+    assert_eq!(
+        snapshot.available_packs.len(),
+        2,
+        "the seeded catalogue must still be offered"
+    );
+}
+
+#[test]
+fn a_remembered_device_is_offered_even_before_it_is_chosen() {
+    let mut session = bare_session(true);
+    session
+        .nominate_media_target(LOCATOR, "Odin SD card")
+        .unwrap();
+
+    let snapshot = session.snapshot();
+
+    assert!(snapshot.media_target.is_none());
+    assert_eq!(snapshot.available_targets.len(), 1);
+    assert_eq!(snapshot.available_targets[0].label, "Odin SD card");
+}
