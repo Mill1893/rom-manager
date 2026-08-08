@@ -33,6 +33,30 @@ jobs:
       # The optional provider feature must hold the same bar, or it rots.
       - run: cargo clippy --all-targets --features provider-http -- -D warnings
       - run: cargo test --all-targets
+      # The strongest claim this project makes about itself — that the default
+      # build cannot open a socket — was prose until now, hand-checked once and
+      # never again. It is also the claim most likely to be lost by accident,
+      # to a dependency that quietly brings an HTTP client with it.
+      - name: Assert the default build has no network capability
+        if: runner.os == 'Linux'
+        run: scripts/assert-no-network-capability.sh
+      # Denying the network outright, rather than reasoning about who might use
+      # it. `unshare -rn` leaves the process with loopback only, and down.
+      - name: Run the suite with the network denied
+        if: runner.os == 'Linux'
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces through
+          # AppArmor, so `unshare -r` cannot write /proc/self/uid_map and the
+          # namespace is never created. Lift that for the runner rather than
+          # reaching for `sudo unshare -n`: root is refused nothing, which is
+          # the wrong environment for a suite whose subject is what gets
+          # refused.
+          # Tolerated if absent: the knob only exists on kernels that have the
+          # restriction, and where it does not exist there is nothing to lift.
+          # If the namespace still cannot be created, unshare says so and the
+          # job fails on that rather than on this.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          unshare -rn cargo test --all-targets
       - name: Type-check and test the UI
         working-directory: ui
         run: |
