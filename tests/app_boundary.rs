@@ -130,6 +130,13 @@ fn a_snapshot_round_trips_across_the_webview_boundary() {
         step: WizardStep::ReviewPlan,
         rom_pack: None,
         media_target: None,
+        available_packs: vec![rom_manager::RomPackChoice {
+            rom_pack_id: "pack-gb".into(),
+            revision: 1,
+            title: "Nintendo - Game Boy".into(),
+            rom_set_count: 261,
+        }],
+        available_targets: Vec::new(),
         plan: Some(PlanView::of(&plan, true)),
         progress: None,
         outcome: None,
@@ -145,4 +152,11 @@ fn a_snapshot_round_trips_across_the_webview_boundary() {
     assert!(json.contains("permanentRemovalCount"));
     assert!(json.contains("recoveryDisclosure"));
     assert!(json.contains("inventoryFresh"));
+    // The catalogue is part of that payload. It was absent, and the interface
+    // consequently could not tell an empty Library from an unmade choice —
+    // which is exactly the "field the UI silently stops showing" this test
+    // exists to catch.
+    assert!(json.contains("availablePacks"));
+    assert!(json.contains("availableTargets"));
+    assert!(json.contains("Nintendo - Game Boy"));
 }

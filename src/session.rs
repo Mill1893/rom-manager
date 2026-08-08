@@ -342,6 +342,8 @@ impl<T: Transport> Session<T> {
             step: self.step.clone(),
             rom_pack: self.rom_pack.clone(),
             media_target: self.media_target.clone(),
+            available_packs: self.packs.clone(),
+            available_targets: self.targets.clone(),
             plan: self.plan_view(),
             progress: self.progress.clone(),
             outcome: self.outcome.clone(),

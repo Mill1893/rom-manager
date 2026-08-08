@@ -170,9 +170,23 @@ interface StepProps {
 function Step({ snapshot, busy, run }: StepProps): React.JSX.Element {
   switch (snapshot.step.step) {
     case "selectRomPack":
-      return <SelectRomPack chosen={snapshot.romPack} busy={busy} run={run} />;
+      return (
+        <SelectRomPack
+          chosen={snapshot.romPack}
+          available={snapshot.availablePacks}
+          busy={busy}
+          run={run}
+        />
+      );
     case "selectMediaTarget":
-      return <SelectMediaTarget chosen={snapshot.mediaTarget} busy={busy} run={run} />;
+      return (
+        <SelectMediaTarget
+          chosen={snapshot.mediaTarget}
+          available={snapshot.availableTargets}
+          busy={busy}
+          run={run}
+        />
+      );
     case "reviewPlan":
       return snapshot.plan === null ? (
         <section>
@@ -211,53 +225,70 @@ function Step({ snapshot, busy, run }: StepProps): React.JSX.Element {
 
 function SelectRomPack({
   chosen,
+  available,
   busy,
   run,
 }: {
   readonly chosen: RomPackChoice | null;
+  readonly available: readonly RomPackChoice[];
   readonly busy: Busy;
   readonly run: StepProps["run"];
 }): React.JSX.Element {
+  const empty = available.length === 0;
   return (
     <section aria-labelledby="rom-pack-heading">
       <h2 id="rom-pack-heading">Choose what to sync</h2>
-      {chosen === null ? (
-        <>
-          <p>
-            No ROM Packs yet. Add a folder to look for ROMs in — nothing is read
-            until you ask for a scan.
-          </p>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => void run("Choosing", commands.pickImportFolder)}
-          >
-            Add a ROM folder…
-          </button>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => void run("Scanning", commands.scanImportFolders)}
-          >
-            Scan for ROMs
-          </button>
-        </>
-      ) : (
+
+      {/*
+        An empty Library and an unmade choice are different situations and used
+        to render identically, because this only ever saw the chosen pack. The
+        result was "No ROM Packs yet" shown to someone holding 261 games, with
+        the one control that could have selected them disabled.
+      */}
+      {empty ? (
         <p>
-          <strong>{chosen.title}</strong> — {chosen.romSetCount} ROM Set
-          {chosen.romSetCount === 1 ? "" : "s"}, revision {chosen.revision}
+          No ROM Packs yet. Add a folder to look for ROMs in — nothing is read
+          until you ask for a scan.
         </p>
+      ) : (
+        <ul aria-label="ROM Packs">
+          {available.map((pack) => {
+            const selected =
+              chosen?.romPackId === pack.romPackId && chosen.revision === pack.revision;
+            return (
+              <li key={`${pack.romPackId}@${pack.revision}`}>
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void run("Selecting", () =>
+                      commands.selectRomPack(pack.romPackId, pack.revision),
+                    )
+                  }
+                >
+                  <strong>{pack.title}</strong> — {pack.romSetCount} ROM Set
+                  {pack.romSetCount === 1 ? "" : "s"}, revision {pack.revision}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
+
       <button
         type="button"
-        disabled={busy !== null || chosen === null}
-        onClick={() => {
-          if (chosen !== null) {
-            void run("Selecting", () => commands.selectRomPack(chosen.romPackId, chosen.revision));
-          }
-        }}
+        disabled={busy !== null}
+        onClick={() => void run("Choosing", commands.pickImportFolder)}
       >
-        Continue
+        Add a ROM folder…
+      </button>
+      <button
+        type="button"
+        disabled={busy !== null}
+        onClick={() => void run("Scanning", commands.scanImportFolders)}
+      >
+        Scan for ROMs
       </button>
     </section>
   );
@@ -265,51 +296,60 @@ function SelectRomPack({
 
 function SelectMediaTarget({
   chosen,
+  available,
   busy,
   run,
 }: {
   readonly chosen: MediaTargetChoice | null;
+  readonly available: readonly MediaTargetChoice[];
   readonly busy: Busy;
   readonly run: StepProps["run"];
 }): React.JSX.Element {
   // A disconnected target is shown rather than hidden: the user picked this
   // device, and "it is not plugged in" is more useful than it vanishing.
   const unreachable = chosen !== null && !chosen.connected;
+  const empty = available.length === 0;
   return (
     <section aria-labelledby="target-heading">
       <h2 id="target-heading">Choose a device</h2>
-      {chosen === null ? (
-        <>
-          <p>No devices yet. Choose the card or drive you sync to.</p>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => void run("Choosing", commands.pickMediaTarget)}
-          >
-            Add a device…
-          </button>
-        </>
+
+      {empty ? (
+        <p>No devices yet. Choose the card or drive you sync to.</p>
       ) : (
-        <p>
-          <strong>{chosen.label}</strong>
-          {unreachable && " — not connected"}
-        </p>
+        <ul aria-label="Devices">
+          {available.map((target) => (
+            <li key={target.targetId}>
+              <button
+                type="button"
+                aria-pressed={chosen?.targetId === target.targetId}
+                // A disconnected device cannot be selected, but it is still
+                // listed and still says why — a row that vanishes when the card
+                // is unplugged looks like the application forgot it.
+                disabled={busy !== null || !target.connected}
+                onClick={() =>
+                  void run("Selecting", () => commands.selectMediaTarget(target.targetId))
+                }
+              >
+                <strong>{target.label}</strong>
+                {!target.connected && " — not connected"}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
+
       {unreachable && (
         <p role="alert" className="failure">
           Reconnect this device before continuing.
         </p>
       )}
+
       <button
         type="button"
-        disabled={busy !== null || chosen === null || unreachable}
-        onClick={() => {
-          if (chosen !== null) {
-            void run("Selecting", () => commands.selectMediaTarget(chosen.targetId));
-          }
-        }}
+        disabled={busy !== null}
+        onClick={() => void run("Choosing", commands.pickMediaTarget)}
       >
-        Continue
+        Add a device…
       </button>
     </section>
   );
